@@ -22,40 +22,44 @@ BEGIN
 
     INSERT INTO ANALYST_QUERY_LOG
     (
-        QUERY_ID,
+        REQUEST_ID,
         QUERY_TIMESTAMP,
         USER_NAME,
-        QUERY_TEXT,
+        USER_QUESTION,
+        GENERATED_SQL,
         RESPONSE,
-        EXECUTION_TIME_SECONDS
+        EXECUTION_TIME_SECONDS,
+        SEMANTIC_MODEL_NAME,
+        RESPONSE_STATUS_CODE,
+        AGENT_REQUEST_ID
     )
     SELECT
-        qh.QUERY_ID,
-        qh.START_TIME,
-        qh.USER_NAME,
-        qh.QUERY_TEXT,
-        'Auto-captured from Cortex Analyst query history',
-        ROUND(qh.EXECUTION_TIME / 1000.0, 2)
-    FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY qh
-    WHERE qh.START_TIME >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
-      AND qh.QUERY_TEXT ILIKE '%SALES_SEMANTIC_MODEL%'
-      AND qh.EXECUTION_STATUS = 'SUCCESS'
-      AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_FROM_HISTORY%'
-      AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_TASK%'
+        ca.REQUEST_ID,
+        ca.TIMESTAMP,
+        ca.USER_ID,
+        ca.LATEST_QUESTION,
+        ca.GENERATED_SQL,
+        ca.RESPONSE_BODY::VARCHAR,
+        NULL,
+        ca.SEMANTIC_MODEL_NAME,
+        ca.RESPONSE_STATUS_CODE,
+        ca.SOURCE:agent_request_id::VARCHAR
+    FROM SNOWFLAKE.LOCAL.CORTEX_ANALYST_REQUESTS_V ca
+    WHERE ca.TIMESTAMP >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
+      AND ca.SEMANTIC_MODEL_NAME = 'SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL'
       AND NOT EXISTS
       (
           SELECT 1
           FROM ANALYST_QUERY_LOG aql
-          WHERE aql.QUERY_ID = qh.QUERY_ID
+          WHERE aql.REQUEST_ID = ca.REQUEST_ID
       )
-    ORDER BY qh.START_TIME
+    ORDER BY ca.TIMESTAMP
     LIMIT 100;
 
-    RETURN 'Capture procedure executed successfully';
+    RETURN 'Cortex Analyst requests captured successfully';
 
 END;
-$$;
-
+$$
 
 -- ============================================================================
 -- CREATE TASK
