@@ -61,13 +61,20 @@ try:
             with open(sql_file, 'r') as f:
                 sql_content = f.read()
             
-            # Execute using execute_string for multiple statements
-            cursor.execute_string(sql_content)
+            # Split statements by semicolon and execute each one
+            statements = sql_content.split(';')
             
+            for statement in statements:
+                statement = statement.strip()
+                if statement:  # Only execute non-empty statements
+                    cursor.execute(statement)
+            
+            conn.commit()
             print(f"     ✅ Done")
             
         except Exception as e:
             print(f"     ❌ Error: {e}")
+            conn.rollback()
             raise
     
     print()
