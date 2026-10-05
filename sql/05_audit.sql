@@ -46,7 +46,7 @@ BEGIN
         ca.SOURCE:agent_request_id::VARCHAR
     FROM SNOWFLAKE.LOCAL.CORTEX_ANALYST_REQUESTS_V ca
     WHERE ca.TIMESTAMP >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
-      AND ca.SEMANTIC_MODEL_NAME = 'SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL'
+      AND ca.REQUEST_ID IS NOT NULL
       AND NOT EXISTS
       (
           SELECT 1
@@ -60,7 +60,6 @@ BEGIN
 
 END;
 $$
-;
 
 
 -- ============================================================================
