@@ -8,45 +8,7 @@ USE DATABASE SALES_DATA;
 USE SCHEMA PUBLIC;
 
 -- ============================================================================
--- STEP 1: CREATE QUERY EXECUTION FUNCTION
--- ============================================================================
-
-CREATE OR REPLACE FUNCTION EXECUTE_AGENT_QUERY(query_text VARCHAR)
-RETURNS TABLE (RESULT VARIANT)
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.11'
-AS $$
-def execute_agent_query(query_text):
-    try:
-        result = _snowflake.execute_string(query_text)
-        rows = []
-        while result.next():
-            rows.append(dict(result.get_values()))
-        return rows if rows else [{"INFO": "Query executed successfully with no results"}]
-    except Exception as e:
-        return [{"ERROR": str(e)}]
-$$;
-
--- ============================================================================
--- STEP 2: CREATE SCHEMA CONTEXT FUNCTION
--- ============================================================================
-
-CREATE OR REPLACE FUNCTION GET_SCHEMA_CONTEXT()
-RETURNS VARCHAR
-LANGUAGE SQL
-AS $$
-    SELECT STRING_AGG(
-        'TABLE: ' || TABLE_NAME || 
-        ' - ' || TABLE_DESCRIPTION || 
-        ' (Columns: ' || STRING_AGG(COLUMN_NAME || ' (' || COLUMN_TYPE || ')', ', ') || ')',
-        ' | '
-    ) 
-    FROM DATA_DICTIONARY
-    GROUP BY TABLE_NAME
-$$;
-
--- ============================================================================
--- STEP 3: CREATE AGENT
+-- STEP 1: CREATE AGENT
 -- ============================================================================
 
 CREATE OR REPLACE AGENT SNOWFLAKE_DATA_AGENT
@@ -94,17 +56,15 @@ If a question is ambiguous, ask for clarification before generating SQL.
 $$;
 
 -- ============================================================================
--- STEP 4: GRANT PERMISSIONS TO AGENTS
+-- STEP 2: GRANT PERMISSIONS TO AGENT
 -- ============================================================================
 
 GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
 GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
-GRANT EXECUTE ON FUNCTION EXECUTE_AGENT_QUERY(VARCHAR) TO ROLE ACCOUNTADMIN;
-GRANT EXECUTE ON FUNCTION GET_SCHEMA_CONTEXT() TO ROLE ACCOUNTADMIN;
 
 -- ============================================================================
--- STEP 5: VERIFY AGENT CREATION
+-- STEP 3: VERIFY AGENT CREATION
 -- ============================================================================
 
 SELECT AGENT_NAME, AGENT_STATUS, CREATED_AT
