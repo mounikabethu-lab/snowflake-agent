@@ -1,12 +1,16 @@
 -- ============================================================================
 -- AUTOMATIC AUDIT LOGGING FOR ANALYST UI QUERIES
 -- ============================================================================
--- Purpose: Automatically capture all Analyst questions asked in Snowflake UI
--- How: Background task scans query history every minute
---      Finds all Analyst queries
---      Auto-inserts them into ANALYST_QUERY_LOG
+-- Purpose:
+--   Automatically capture Analyst-related queries from Snowflake query history.
+--
+-- How:
+--   Background task scans query history every minute.
+--   New queries referencing SALES_SEMANTIC_MODEL are inserted into
+--   ANALYST_QUERY_LOG.
+--
 -- Database: SALES_DATA
--- Schema: PUBLIC
+-- Schema  : PUBLIC
 -- ============================================================================
 
 USE DATABASE SALES_DATA;
@@ -14,7 +18,22 @@ USE SCHEMA PUBLIC;
 
 
 -- ============================================================================
--- STEP 1: CREATE PROCEDURE TO AUTO-CAPTURE FROM QUERY HISTORY
+-- STEP 1: CREATE AUDIT LOG TABLE
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS ANALYST_QUERY_LOG
+(
+    QUERY_ID                 VARCHAR,
+    QUERY_TIMESTAMP          TIMESTAMP_LTZ,
+    USER_NAME                VARCHAR,
+    QUERY_TEXT               VARCHAR,
+    RESPONSE                 VARCHAR,
+    EXECUTION_TIME_SECONDS   NUMBER(12,2)
+);
+
+
+-- ============================================================================
+-- STEP 2: CREATE PROCEDURE
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE CAPTURE_ANALYST_QUERIES_FROM_HISTORY()
@@ -45,16 +64,16 @@ BEGIN
     FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY qh
     WHERE qh.START_TIME >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
 
-      -- Cortex Analyst-related queries
+      -- Cortex Analyst / semantic-view related queries
       AND qh.QUERY_TEXT ILIKE '%SALES_SEMANTIC_MODEL%'
 
-      -- Don't capture the logging procedure itself
+      -- Do not capture this procedure itself
       AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_FROM_HISTORY%'
 
-      -- Don't capture the task itself
+      -- Do not capture the task definition/execution
       AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_TASK%'
 
-      -- Prevent duplicates using Snowflake's unique query ID
+      -- Prevent duplicates
       AND NOT EXISTS
       (
           SELECT 1
@@ -65,35 +84,32 @@ BEGIN
     ORDER BY qh.START_TIME
     LIMIT 100;
 
-    SELECT COUNT(*)
-    INTO :v_captured_count
-    FROM ANALYST_QUERY_LOG
-    WHERE QUERY_ID IN
-    (
-        SELECT QUERY_ID
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE START_TIME >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
-          AND QUERY_TEXT ILIKE '%SALES_SEMANTIC_MODEL%'
-    );
+    -- Number of rows inserted by the INSERT above
+    v_captured_count := SQLROWCOUNT;
 
-    RETURN 'Captured Analyst queries. Total matching records processed: '
-           || v_captured_count;
+    RETURN
+        'Captured ' || v_captured_count ||
+        ' new Analyst query record(s).';
 
 END;
 $$;
+
+
 -- ============================================================================
--- STEP 1.1: CREATE TASK TO RUN EVERY MINUTE
+-- STEP 3: CREATE TASK
 -- ============================================================================
 
 CREATE OR REPLACE TASK CAPTURE_ANALYST_QUERIES_TASK
-WAREHOUSE = COMPUTE_WH
-SCHEDULE = '1 minute'
+    WAREHOUSE = COMPUTE_WH
+    SCHEDULE = '1 MINUTE'
 AS
-CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY();
+    CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY();
+
 
 -- ============================================================================
--- STEP 1.2: ENABLE THE TASK
+-- STEP 4: ENABLE TASK
 -- ============================================================================
+-- New tasks are created suspended.
+-- Uncomment this after successful deployment/testing.
 
---ALTER TASK CAPTURE_ANALYST_QUERIES_TASK RESUME;
-
+-- ALTER TASK CAPTURE_ANALYST_QUERIES_TASK RESUME;
