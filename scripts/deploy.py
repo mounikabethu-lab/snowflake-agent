@@ -56,11 +56,19 @@ try:
     
     for sql_file in sql_files:
         print(f"  ▶️  {sql_file}...")
-        with open(sql_file, 'r') as f:
-            sql = f.read()
-        cursor.execute(sql)
-        conn.commit()
-        print(f"     ✅ Done")
+        
+        try:
+            with open(sql_file, 'r') as f:
+                sql_content = f.read()
+            
+            # Execute using execute_string for multiple statements
+            cursor.execute_string(sql_content)
+            
+            print(f"     ✅ Done")
+            
+        except Exception as e:
+            print(f"     ❌ Error: {e}")
+            raise
     
     print()
     print("✅ Deployment completed successfully!")
@@ -69,6 +77,10 @@ try:
     cursor.close()
     conn.close()
 
+except FileNotFoundError as e:
+    print(f"❌ File not found: {e}")
+    exit(1)
+    
 except Exception as e:
     print(f"❌ Error: {e}")
     exit(1)
