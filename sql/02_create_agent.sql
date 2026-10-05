@@ -1,91 +1,59 @@
 -- ============================================================================
--- CREATE AGENT FUNCTIONS
+-- SNOWFLAKE CORTEX AGENT CREATION
 -- ============================================================================
 
 USE DATABASE SALES_DATA;
 USE SCHEMA PUBLIC;
 
 -- ============================================================================
--- CREATE HELPER FUNCTIONS
+-- CREATE AGENT WITH CORTEX
 -- ============================================================================
 
-CREATE OR REPLACE FUNCTION GET_TABLE_INFO(table_name_param VARCHAR)
-RETURNS TABLE (
-    TABLE_NAME VARCHAR,
-    COLUMN_NAME VARCHAR,
-    COLUMN_TYPE VARCHAR,
-    COLUMN_DESCRIPTION VARCHAR
-)
-LANGUAGE SQL
-AS
-$$
-    SELECT 
-        TABLE_NAME,
-        COLUMN_NAME,
-        COLUMN_TYPE,
-        COLUMN_DESCRIPTION
-    FROM DATA_DICTIONARY
-    WHERE UPPER(TABLE_NAME) = UPPER(table_name_param)
-    ORDER BY COLUMN_NAME
-$$;
+CREATE OR REPLACE AGENT SNOWFLAKE_DATA_AGENT
+COMMENT = 'Cortex Agent for Sales Data Analysis'
+AS $$
+You are an expert sales data analyst. Help users understand their sales data by answering questions about:
 
-CREATE OR REPLACE FUNCTION GET_TABLE_JOINS(table_name_param VARCHAR)
-RETURNS TABLE (
-    SOURCE_TABLE VARCHAR,
-    TARGET_TABLE VARCHAR,
-    JOIN_COLUMN VARCHAR,
-    RELATIONSHIP_DESCRIPTION VARCHAR
-)
-LANGUAGE SQL
-AS
-$$
-    SELECT 
-        SOURCE_TABLE,
-        TARGET_TABLE,
-        CONCAT(SOURCE_COLUMN, ' = ', TARGET_COLUMN),
-        RELATIONSHIP_DESCRIPTION
-    FROM TABLE_RELATIONSHIPS
-    WHERE UPPER(SOURCE_TABLE) = UPPER(table_name_param)
-    OR UPPER(TARGET_TABLE) = UPPER(table_name_param)
-$$;
+📊 CUSTOMERS: Company information, industry, size, contact data
+📈 ORDERS: Sales transactions, order values, dates
+🏆 SALES_REPS: Sales team performance, territories, quotas
+📦 PRODUCTS: Product catalog, categories, pricing
+💰 SALES_PERFORMANCE: Monthly metrics, quota attainment, deals won/lost
+⚠️ CUSTOMER_LIFETIME_VALUE: Customer value, churn risk, renewal likelihood
+🏭 MANUFACTURING: Demand forecasts, production schedules
 
-CREATE OR REPLACE FUNCTION GET_BUSINESS_RULES(rule_type_param VARCHAR)
-RETURNS TABLE (
-    RULE_NAME VARCHAR,
-    RULE_DESCRIPTION VARCHAR,
-    THRESHOLD_VALUE NUMBER
-)
-LANGUAGE SQL
-AS
-$$
-    SELECT 
-        RULE_NAME,
-        RULE_DESCRIPTION,
-        THRESHOLD_VALUE
-    FROM BUSINESS_CONTEXT
-    WHERE RULE_TYPE = rule_type_param
-$$;
+When users ask questions:
+1. Query the relevant tables
+2. Apply business logic:
+   - Churn Risk: HIGH (>25%), MEDIUM (15-25%), LOW (<15%)
+   - Quota Performance: EXCEEDING (>110%), ON_TRACK (85-110%), UNDERPERFORMING (<85%)
+   - Product Growth: HIGH (>15%), MODERATE (5-15%), DECLINING (<5%)
+3. Provide clear, actionable insights
+4. Always show key metrics and trends
 
-CREATE OR REPLACE FUNCTION GET_ALL_TABLES()
-RETURNS TABLE (
-    TABLE_NAME VARCHAR,
-    TABLE_DESCRIPTION VARCHAR
-)
-LANGUAGE SQL
-AS
-$$
-    SELECT DISTINCT
-        TABLE_NAME,
-        TABLE_DESCRIPTION
-    FROM DATA_DICTIONARY
-    ORDER BY TABLE_NAME
+Example questions you can answer:
+- "Show me my top 10 customers"
+- "Which sales reps are underperforming?"
+- "What products are trending?"
+- "Which customers might churn?"
+- "What's our sales forecast?"
+- "Show me inventory status"
+- "Customer lifetime value analysis"
 $$;
 
 -- ============================================================================
--- VERIFY FUNCTION CREATION
+-- GRANT PERMISSIONS
 -- ============================================================================
 
-SELECT FUNCTION_NAME
-FROM INFORMATION_SCHEMA.FUNCTIONS
-WHERE FUNCTION_SCHEMA = 'PUBLIC'
-AND FUNCTION_NAME IN ('GET_TABLE_INFO', 'GET_TABLE_JOINS', 'GET_BUSINESS_RULES', 'GET_ALL_TABLES');
+GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
+GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
+GRANT OPERATE ON AGENT SNOWFLAKE_DATA_AGENT TO ROLE ACCOUNTADMIN;
+
+-- ============================================================================
+-- VERIFY AGENT
+-- ============================================================================
+
+SELECT AGENT_NAME, AGENT_STATUS, CREATED_AT
+FROM INFORMATION_SCHEMA.AGENTS
+WHERE AGENT_NAME = 'SNOWFLAKE_DATA_AGENT';
