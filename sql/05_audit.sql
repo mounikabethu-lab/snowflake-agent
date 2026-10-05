@@ -18,6 +18,8 @@ LANGUAGE SQL
 EXECUTE AS CALLER
 AS
 $$
+DECLARE
+    rows_inserted NUMBER DEFAULT 0;
 BEGIN
 
     INSERT INTO ANALYST_QUERY_LOG
@@ -43,7 +45,7 @@ BEGIN
         NULL,
         ca.SEMANTIC_MODEL_NAME,
         ca.RESPONSE_STATUS_CODE,
-        ca.SOURCE:agent_request_id::VARCHAR
+        NULL
     FROM SNOWFLAKE.LOCAL.CORTEX_ANALYST_REQUESTS_V ca
     WHERE ca.TIMESTAMP >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
       AND ca.REQUEST_ID IS NOT NULL
@@ -56,11 +58,12 @@ BEGIN
     ORDER BY ca.TIMESTAMP
     LIMIT 100;
 
-    RETURN 'Cortex Analyst requests captured successfully';
+    rows_inserted := SQLROWCOUNT;
+
+    RETURN 'Rows inserted: ' || rows_inserted;
 
 END;
 $$;
-
 
 -- ============================================================================
 -- CREATE TASK
