@@ -28,26 +28,3 @@ VALUES
 ('Inventory Status: CRITICAL < safety_stock, WARNING < 1.5x, OK >= 1.5x', 'THRESHOLD'),
 ('Product Growth: HIGH > 15%, MODERATE 5-15%, DECLINING < 5%', 'THRESHOLD'),
 ('Ask for clarification if question is ambiguous', 'BEHAVIOR');
-
--- ============================================================================
--- CREATE QUERY LOGGING PROCEDURE
--- ============================================================================
-
-CREATE OR REPLACE PROCEDURE LOG_AGENT_QUERY(
-    question VARCHAR,
-    sql_generated VARCHAR,
-    status VARCHAR
-)
-RETURNS VARCHAR
-LANGUAGE SQL
-AS
-$$
-    INSERT INTO AGENT_QUERY_LOG (QUESTION, GENERATED_SQL, EXECUTION_STATUS)
-    VALUES (question, sql_generated, status);
-    SELECT 'Query logged successfully' AS RESULT;
-$$;
-
--- ============================================================================
--- VERIFY SETUP
--- ============================================================================
-
