@@ -136,21 +136,20 @@ INSERT INTO BUSINESS_CONTEXT VALUES
 ('BC012', 'PRODUCT_GROWTH', 'DECLINING', 'Growth < 5%', 5.00, 'DECLINING', CURRENT_TIMESTAMP());
 
 -- ============================================================================
--- CREATE AGENT_QUERY_LOG TABLE
+-- CREATE ANALYST_QUERY_LOG TABLE
 -- ============================================================================
 
-CREATE TABLE AGENT_QUERY_LOG (
-    QUERY_ID VARCHAR DEFAULT UUID_STRING(),
-    QUESTION VARCHAR,
-    GENERATED_SQL VARCHAR,
-    EXECUTION_TIMESTAMP TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
-    EXECUTION_STATUS VARCHAR,
-    ROW_COUNT NUMBER,
-    EXECUTION_TIME_MS NUMBER,
-    USER_EXECUTED VARCHAR DEFAULT CURRENT_USER(),
-    NOTES VARCHAR
-);
+DROP  TABLE IF EXISTS AGENT_QUERY_LOG; 
 
+CREATE OR REPLACE TABLE ANALYST_QUERY_LOG
+(
+    QUERY_ID VARCHAR,
+    QUERY_TIMESTAMP TIMESTAMP_LTZ,
+    USER_NAME VARCHAR,
+    QUERY_TEXT VARCHAR,
+    RESPONSE VARCHAR,
+    EXECUTION_TIME_SECONDS NUMBER(12,2)
+);
 -- ============================================================================
 -- CREATE AGENT_SAMPLE_QUERIES TABLE
 -- ============================================================================
