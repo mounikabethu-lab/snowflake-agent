@@ -94,7 +94,7 @@ If a question is ambiguous, ask for clarification before generating SQL.
 $$;
 
 -- ============================================================================
--- STEP 4: GRANT PERMISSIONS TO AGENT
+-- STEP 4: GRANT PERMISSIONS TO AGENTS
 -- ============================================================================
 
 GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
