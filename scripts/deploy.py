@@ -1,9 +1,11 @@
 """
 Snowflake Agent Deployment Script - Deploy All SQL Files
+Auto-deploy in CI/CD environments (GitHub Actions)
 """
 
 import os
 import glob
+import sys
 import subprocess
 from datetime import datetime
 import snowflake.connector
@@ -16,6 +18,10 @@ class C:
     FAIL = '\033[91m'
     BOLD = '\033[1m'
     ENDC = '\033[0m'
+
+def is_ci_environment():
+    """Check if running in CI/CD environment"""
+    return os.getenv('GITHUB_ACTIONS') == 'true' or os.getenv('CI') == 'true'
 
 def load_config():
     """Load configuration from .env"""
@@ -59,12 +65,21 @@ def display_header(config, sql_files):
     print(f"  Database:  {C.OKGREEN}{config['database']}{C.ENDC}")
     print(f"  Warehouse: {C.OKGREEN}{config['warehouse']}{C.ENDC}")
     
+    if is_ci_environment():
+        print(f"\n{C.BOLD}Environment: {C.OKGREEN}GitHub Actions (Auto-deploy){C.ENDC}")
+    else:
+        print(f"\n{C.BOLD}Environment: {C.OKGREEN}Local (Interactive){C.ENDC}")
+    
     print(f"\n{C.BOLD}SQL Files to Deploy ({len(sql_files)}):{C.ENDC}")
     for sql_file in sql_files:
         print(f"  ✨ {sql_file}")
 
 def confirm_deployment():
-    """Ask user for confirmation"""
+    """Ask user for confirmation (skip in CI/CD)"""
+    if is_ci_environment():
+        print(f"\n{C.BOLD}Auto-deploying in CI/CD environment...{C.ENDC}\n")
+        return True
+    
     print(f"\n{C.BOLD}⚠️  Proceed with deployment? (yes/no): {C.ENDC}", end="")
     response = input().strip().lower()
     
@@ -77,7 +92,7 @@ def confirm_deployment():
 def connect_snowflake(config):
     """Connect to Snowflake"""
     try:
-        print(f"\n{C.BOLD}Connecting to Snowflake...{C.ENDC}")
+        print(f"{C.BOLD}Connecting to Snowflake...{C.ENDC}")
         conn = snowflake.connector.connect(
             account=config['account'],
             user=config['user'],
@@ -117,31 +132,34 @@ def execute_deployment(conn, cursor, sql_files):
             print(f"     {C.FAIL}❌ Error: {e}{C.ENDC}")
             exit(1)
     
-    print(f"\n{C.OKGREEN}✅ Deployment completed successfully!{C.ENDC}")
+    print(f"\n{C.OKGREEN}✅ All SQL files deployed successfully!{C.ENDC}")
 
 def show_next_steps():
     """Show next steps"""
     print(f"\n{C.BOLD}{'='*65}{C.ENDC}")
-    print(f"{C.BOLD}NEXT STEPS:{C.ENDC}")
-    print(f"{'='*65}\n")
+    print(f"{C.BOLD}✅ DEPLOYMENT COMPLETE{C.ENDC}")
+    print(f"{C.BOLD}{'='*65}{C.ENDC}\n")
+    
+    print(f"{C.BOLD}Agent is ready in Snowflake Intelligence!{C.ENDC}\n")
     
     print(f"1. Open Snowflake Console:")
-    print(f"   {C.OKGREEN}https://app.snowflake.com/{C.ENDC}")
+    print(f"   {C.OKGREEN}https://app.snowflake.com/{C.ENDC}\n")
     
-    print(f"\n2. Go to Intelligence/Copilot")
+    print(f"2. Go to Intelligence/Copilot section\n")
     
-    print(f"\n3. Ask questions directly to the agent:")
+    print(f"3. Ask questions to SNOWFLAKE_DATA_AGENT:")
     print(f"   • Show me top 10 customers by revenue")
     print(f"   • Which sales reps are underperforming?")
     print(f"   • What products are trending?")
     print(f"   • Show high churn risk customers")
     print(f"   • Show inventory alerts")
-    print(f"   • Customer lifetime value analysis")
+    print(f"   • Customer lifetime value analysis\n")
     
-    print(f"\n4. Push to GitHub:")
-    print(f"   {C.OKGREEN}.\push-to-github.ps1{C.ENDC}")
+    if not is_ci_environment():
+        print(f"4. Push to GitHub:")
+        print(f"   {C.OKGREEN}.\push-to-github.ps1{C.ENDC}\n")
     
-    print(f"\n{C.BOLD}{'='*65}{C.ENDC}\n")
+    print(f"{C.BOLD}{'='*65}{C.ENDC}\n")
 
 def main():
     """Main execution"""
