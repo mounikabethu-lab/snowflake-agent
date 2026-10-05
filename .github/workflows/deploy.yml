@@ -1,0 +1,53 @@
+name: Deploy Snowflake Agent
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'sql/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Snowflake
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install snowflake-connector-python python-dotenv
+      
+      - name: Display deployment info
+        run: |
+          echo "================================"
+          echo "SNOWFLAKE DEPLOYMENT"
+          echo "================================"
+          echo "Account: ${{ secrets.SNOWFLAKE_ACCOUNT }}"
+          echo "Database: ${{ secrets.SNOWFLAKE_DATABASE }}"
+          echo "Warehouse: ${{ secrets.SNOWFLAKE_WAREHOUSE }}"
+          echo "================================"
+      
+      - name: Deploy to Snowflake
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+        run: python scripts/deploy.py
+      
+      - name: Deployment Complete
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "🎉 Snowflake Native Agent is deployed!"
