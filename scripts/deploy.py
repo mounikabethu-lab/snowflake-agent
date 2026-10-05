@@ -27,6 +27,39 @@ print(f"  Database:  {database}")
 print(f"  Warehouse: {warehouse}")
 print()
 
+def remove_comments(sql):
+    """Remove SQL comments from content"""
+    lines = sql.split('\n')
+    cleaned = []
+    
+    for line in lines:
+        # Remove line comments
+        if '--' in line:
+            line = line[:line.index('--')]
+        
+        # Add non-empty lines
+        if line.strip():
+            cleaned.append(line)
+    
+    return '\n'.join(cleaned)
+
+def split_statements(sql):
+    """Split SQL into individual statements"""
+    # Remove comments
+    sql = remove_comments(sql)
+    
+    # Split by semicolon
+    statements = sql.split(';')
+    
+    # Clean and filter
+    result = []
+    for stmt in statements:
+        stmt = stmt.strip()
+        if stmt:  # Only non-empty
+            result.append(stmt)
+    
+    return result
+
 try:
     # Connect to Snowflake
     print("Connecting to Snowflake...")
@@ -61,13 +94,11 @@ try:
             with open(sql_file, 'r') as f:
                 sql_content = f.read()
             
-            # Split statements by semicolon and execute each one
-            statements = sql_content.split(';')
+            # Split and execute statements
+            statements = split_statements(sql_content)
             
             for statement in statements:
-                statement = statement.strip()
-                if statement:  # Only execute non-empty statements
-                    cursor.execute(statement)
+                cursor.execute(statement)
             
             conn.commit()
             print(f"     ✅ Done")
