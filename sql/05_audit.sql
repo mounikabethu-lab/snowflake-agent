@@ -1,235 +1,75 @@
-"""
-Snowflake Agent Deployment Script
-Deploy all SQL files from the sql/ directory.
-"""
+-- ============================================================================
+-- AUTOMATIC AUDIT LOGGING FOR ANALYST UI QUERIES
+-- ============================================================================
 
-import os
-import glob
-import sys
+USE DATABASE SALES_DATA;
 
-import snowflake.connector
-from dotenv import load_dotenv
+USE SCHEMA PUBLIC;
 
-load_dotenv()
 
-def is_ci_environment():
-return (
-os.getenv("GITHUB_ACTIONS") == "true"
-or os.getenv("CI") == "true"
-)
 
-def load_config():
-config = {
-"account": os.getenv("SNOWFLAKE_ACCOUNT"),
-"user": os.getenv("SNOWFLAKE_USER"),
-"password": os.getenv("SNOWFLAKE_PASSWORD"),
-"database": os.getenv("SNOWFLAKE_DATABASE"),
-"warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
-}
+-- ============================================================================
+-- CREATE PROCEDURE
+-- ============================================================================
 
-```
-required = [
-    "account",
-    "user",
-    "password",
-    "database",
-    "warehouse",
-]
+CREATE OR REPLACE PROCEDURE CAPTURE_ANALYST_QUERIES_FROM_HISTORY()
+RETURNS VARCHAR
+LANGUAGE SQL
+EXECUTE AS CALLER
+AS
+$$
+BEGIN
 
-for field in required:
-    if not config[field]:
-        print(f"ERROR: Missing {field}")
-        sys.exit(1)
-
-return config
-```
-
-def get_sql_files():
-sql_files = sorted(glob.glob("sql/*.sql"))
-
-```
-if not sql_files:
-    print("ERROR: No SQL files found in sql/")
-    sys.exit(1)
-
-return sql_files
-```
-
-def connect_snowflake(config):
-print("Connecting to Snowflake...")
-
-```
-try:
-    conn = snowflake.connector.connect(
-        account=config["account"],
-        user=config["user"],
-        password=config["password"],
-        database=config["database"],
-        warehouse=config["warehouse"],
+    INSERT INTO ANALYST_QUERY_LOG
+    (
+        QUERY_ID,
+        QUERY_TIMESTAMP,
+        USER_NAME,
+        QUERY_TEXT,
+        RESPONSE,
+        EXECUTION_TIME_SECONDS
     )
+    SELECT
+        qh.QUERY_ID,
+        qh.START_TIME,
+        qh.USER_NAME,
+        qh.QUERY_TEXT,
+        'Auto-captured from Cortex Analyst query history',
+        ROUND(qh.EXECUTION_TIME / 1000.0, 2)
+    FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY qh
+    WHERE qh.START_TIME >= CURRENT_TIMESTAMP() - INTERVAL '2 hours'
+      AND qh.QUERY_TEXT ILIKE '%SALES_SEMANTIC_MODEL%'
+      AND qh.EXECUTION_STATUS = 'SUCCESS'
+      AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_FROM_HISTORY%'
+      AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_TASK%'
+      AND NOT EXISTS
+      (
+          SELECT 1
+          FROM ANALYST_QUERY_LOG aql
+          WHERE aql.QUERY_ID = qh.QUERY_ID
+      )
+    ORDER BY qh.START_TIME
+    LIMIT 100;
 
-    print("Connected successfully.")
-    return conn
+    RETURN 'Capture procedure executed successfully';
 
-except Exception as e:
-    print(f"ERROR: Connection failed: {e}")
-    sys.exit(1)
-```
+END;
+$$;
 
-def split_sql_statements(sql):
-"""
-Split SQL statements while preserving \(...\) blocks.
 
-```
-Semicolons inside a $$ block are NOT treated as
-statement separators.
-"""
+-- ============================================================================
+-- CREATE TASK
+-- ============================================================================
 
-statements = []
-current = []
+CREATE OR REPLACE TASK CAPTURE_ANALYST_QUERIES_TASK
+    WAREHOUSE = COMPUTE_WH
+    SCHEDULE = '1 MINUTE'
+AS
+    CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY();
 
-inside_dollar_block = False
-i = 0
 
-while i < len(sql):
+-- ============================================================================
+-- ENABLE TASK
+-- ============================================================================
 
-    if sql[i:i + 2] == "$$":
-        current.append("$$")
-        inside_dollar_block = not inside_dollar_block
-        i += 2
-        continue
-
-    char = sql[i]
-
-    if char == ";" and not inside_dollar_block:
-        statement = "".join(current).strip()
-
-        if statement:
-            statements.append(statement)
-
-        current = []
-        i += 1
-        continue
-
-    current.append(char)
-    i += 1
-
-final_statement = "".join(current).strip()
-
-if final_statement:
-    statements.append(final_statement)
-
-if inside_dollar_block:
-    raise ValueError(
-        "Unclosed $$ block found in SQL file."
-    )
-
-return statements
-```
-
-def execute_sql_files(conn, sql_files):
-cursor = conn.cursor()
-
-```
-try:
-
-    for sql_file in sql_files:
-
-        print()
-        print(f"Deploying: {sql_file}")
-
-        with open(
-            sql_file,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            sql = file.read()
-
-        statements = split_sql_statements(sql)
-
-        print(
-            f"Found {len(statements)} statement(s)"
-        )
-
-        for number, statement in enumerate(
-            statements,
-            start=1,
-        ):
-
-            print(
-                f"  Executing statement "
-                f"{number}/{len(statements)}..."
-            )
-
-            cursor.execute(statement)
-
-        conn.commit()
-
-        print(
-            f"SUCCESS: {sql_file}"
-        )
-
-except Exception as e:
-
-    print()
-    print(
-        f"ERROR while deploying {sql_file}:"
-    )
-    print(e)
-
-    try:
-        conn.rollback()
-    except Exception:
-        pass
-
-    sys.exit(1)
-
-finally:
-    cursor.close()
-```
-
-def main():
-
-```
-print()
-print("========================================")
-print("SNOWFLAKE AGENT DEPLOYMENT")
-print("========================================")
-
-if is_ci_environment():
-    print("Environment: GitHub Actions")
-else:
-    print("Environment: Local")
-
-sql_files = get_sql_files()
-
-print()
-print("SQL files:")
-
-for sql_file in sql_files:
-    print(f"  - {sql_file}")
-
-config = load_config()
-
-print()
-print(f"Database: {config['database']}")
-print(f"Warehouse: {config['warehouse']}")
-
-conn = connect_snowflake(config)
-
-try:
-    execute_sql_files(
-        conn,
-        sql_files,
-    )
-finally:
-    conn.close()
-
-print()
-print("========================================")
-print("DEPLOYMENT COMPLETED SUCCESSFULLY")
-print("========================================")
-```
-
-if **name** == "**main**":
-main()
+-- ALTER TASK CAPTURE_ANALYST_QUERIES_TASK RESUME;
