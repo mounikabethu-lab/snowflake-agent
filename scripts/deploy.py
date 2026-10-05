@@ -9,20 +9,66 @@ import snowflake.connector
 def split_sql_statements(sql):
     statements = []
     current = []
+
     inside_dollar_block = False
+    inside_line_comment = False
+    inside_block_comment = False
+
     i = 0
 
     while i < len(sql):
 
+        # ------------------------------------------------------------
+        # Inside -- line comment
+        # ------------------------------------------------------------
+        if inside_line_comment:
+            if sql[i] == "\n":
+                inside_line_comment = False
+                current.append("\n")
+            i += 1
+            continue
+
+        # ------------------------------------------------------------
+        # Inside /* ... */ block comment
+        # ------------------------------------------------------------
+        if inside_block_comment:
+            if sql[i:i + 2] == "*/":
+                inside_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        # ------------------------------------------------------------
+        # Start of -- line comment
+        # ------------------------------------------------------------
+        if sql[i:i + 2] == "--" and not inside_dollar_block:
+            inside_line_comment = True
+            i += 2
+            continue
+
+        # ------------------------------------------------------------
+        # Start of /* ... */ block comment
+        # ------------------------------------------------------------
+        if sql[i:i + 2] == "/*" and not inside_dollar_block:
+            inside_block_comment = True
+            i += 2
+            continue
+
+        # ------------------------------------------------------------
+        # Start/end of $$ block
+        # ------------------------------------------------------------
         if sql[i:i + 2] == "$$":
             current.append("$$")
             inside_dollar_block = not inside_dollar_block
             i += 2
             continue
 
-        char = sql[i]
+        # ------------------------------------------------------------
+        # Semicolon outside $$ = end of SQL statement
+        # ------------------------------------------------------------
+        if sql[i] == ";" and not inside_dollar_block:
 
-        if char == ";" and not inside_dollar_block:
             statement = "".join(current).strip()
 
             if statement:
@@ -32,9 +78,15 @@ def split_sql_statements(sql):
             i += 1
             continue
 
-        current.append(char)
+        # ------------------------------------------------------------
+        # Normal character
+        # ------------------------------------------------------------
+        current.append(sql[i])
         i += 1
 
+    # ------------------------------------------------------------
+    # Add final statement
+    # ------------------------------------------------------------
     statement = "".join(current).strip()
 
     if statement:
@@ -43,8 +95,13 @@ def split_sql_statements(sql):
     if inside_dollar_block:
         raise Exception("Unclosed $$ block in SQL file")
 
-    return statements
+    if inside_line_comment:
+        inside_line_comment = False
 
+    if inside_block_comment:
+        raise Exception("Unclosed /* */ comment in SQL file")
+
+    return statements
 
 def main():
 
