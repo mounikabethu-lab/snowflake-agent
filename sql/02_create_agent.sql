@@ -1,162 +1,457 @@
 -- ============================================================================
--- CREATE SNOWFLAKE AGENT WITH FULL SPECIFICATIONS
+-- SALES DATA - CORTEX SEMANTIC VIEW + AGENT
 -- ============================================================================
 
 USE DATABASE SALES_DATA;
 USE SCHEMA PUBLIC;
 
+
 -- ============================================================================
--- CREATE AGENT
+-- STEP 1: CREATE NATIVE SEMANTIC VIEW
+-- ============================================================================
+-- IMPORTANT:
+-- This is a SEMANTIC VIEW, NOT a dynamic table.
+-- The semantic view tells Cortex Analyst:
+--   * Which tables exist
+--   * How tables join
+--   * Which columns are dimensions
+--   * Which columns are facts/metrics
 -- ============================================================================
 
-CREATE AGENT SNOWFLAKE_DATA_AGENT
-COMMENT = 'Sales Data Intelligence Agent'
-USER_CREATED_TOOL = TRUE
-AS
+CREATE OR REPLACE SEMANTIC VIEW SALES_SEMANTIC_MODEL
+
+TABLES (
+
+    CUSTOMERS AS SALES_DATA.PUBLIC.CUSTOMERS
+        PRIMARY KEY (CUSTOMER_ID),
+
+    ORDERS AS SALES_DATA.PUBLIC.ORDERS
+        PRIMARY KEY (ORDER_ID),
+
+    ORDER_ITEMS AS SALES_DATA.PUBLIC.ORDER_ITEMS
+        PRIMARY KEY (ORDER_ITEM_ID),
+
+    PRODUCTS AS SALES_DATA.PUBLIC.PRODUCTS
+        PRIMARY KEY (PRODUCT_ID),
+
+    SALES_REPS AS SALES_DATA.PUBLIC.SALES_REPS
+        PRIMARY KEY (REP_ID),
+
+    SALES_PERFORMANCE AS SALES_DATA.PUBLIC.SALES_PERFORMANCE
+        PRIMARY KEY (PERF_ID),
+
+    CUSTOMER_SEGMENTS AS SALES_DATA.PUBLIC.CUSTOMER_SEGMENTS
+        PRIMARY KEY (SEGMENT_ID),
+
+    PRODUCT_INVENTORY AS SALES_DATA.PUBLIC.PRODUCT_INVENTORY
+        PRIMARY KEY (INVENTORY_ID),
+
+    CUSTOMER_LIFETIME_VALUE AS SALES_DATA.PUBLIC.CUSTOMER_LIFETIME_VALUE
+        PRIMARY KEY (CLV_ID),
+
+    REP_TERRITORIES AS SALES_DATA.PUBLIC.REP_TERRITORIES
+        PRIMARY KEY (TERRITORY_ID)
+)
+
+RELATIONSHIPS (
+
+    ORDERS_TO_CUSTOMERS AS
+        ORDERS(CUSTOMER_ID) REFERENCES CUSTOMERS(CUSTOMER_ID),
+
+    ORDERS_TO_REPS AS
+        ORDERS(REP_ID) REFERENCES SALES_REPS(REP_ID),
+
+    ORDER_ITEMS_TO_ORDERS AS
+        ORDER_ITEMS(ORDER_ID) REFERENCES ORDERS(ORDER_ID),
+
+    ORDER_ITEMS_TO_PRODUCTS AS
+        ORDER_ITEMS(PRODUCT_ID) REFERENCES PRODUCTS(PRODUCT_ID),
+
+    CUSTOMER_SEGMENTS_TO_CUSTOMERS AS
+        CUSTOMER_SEGMENTS(CUSTOMER_ID) REFERENCES CUSTOMERS(CUSTOMER_ID),
+
+    CUSTOMER_LTV_TO_CUSTOMERS AS
+        CUSTOMER_LIFETIME_VALUE(CUSTOMER_ID) REFERENCES CUSTOMERS(CUSTOMER_ID),
+
+    INVENTORY_TO_PRODUCTS AS
+        PRODUCT_INVENTORY(PRODUCT_ID) REFERENCES PRODUCTS(PRODUCT_ID),
+
+    REP_TERRITORIES_TO_REPS AS
+        REP_TERRITORIES(REP_ID) REFERENCES SALES_REPS(REP_ID)
+)
+
+FACTS (
+
+    ORDERS.FINAL_VALUE AS
+        ORDERS.FINAL_VALUE,
+
+    ORDER_ITEMS.QUANTITY AS
+        ORDER_ITEMS.QUANTITY,
+
+    ORDER_ITEMS.UNIT_PRICE AS
+        ORDER_ITEMS.UNIT_PRICE,
+
+    SALES_PERFORMANCE.QUOTA AS
+        SALES_PERFORMANCE.QUOTA,
+
+    SALES_PERFORMANCE.ACTUAL_REVENUE AS
+        SALES_PERFORMANCE.ACTUAL_REVENUE,
+
+    SALES_PERFORMANCE.QUOTA_ATTAINMENT_PERCENT AS
+        SALES_PERFORMANCE.QUOTA_ATTAINMENT_PERCENT,
+
+    SALES_PERFORMANCE.DEALS_WON AS
+        SALES_PERFORMANCE.DEALS_WON,
+
+    SALES_PERFORMANCE.DEALS_LOST AS
+        SALES_PERFORMANCE.DEALS_LOST,
+
+    SALES_PERFORMANCE.PIPELINE_VALUE AS
+        SALES_PERFORMANCE.PIPELINE_VALUE,
+
+    CUSTOMER_LIFETIME_VALUE.TOTAL_REVENUE AS
+        CUSTOMER_LIFETIME_VALUE.TOTAL_REVENUE,
+
+    CUSTOMER_LIFETIME_VALUE.PREDICTED_LTV AS
+        CUSTOMER_LIFETIME_VALUE.PREDICTED_LTV,
+
+    CUSTOMER_LIFETIME_VALUE.CHURN_RISK_PERCENT AS
+        CUSTOMER_LIFETIME_VALUE.CHURN_RISK_PERCENT,
+
+    CUSTOMER_LIFETIME_VALUE.RENEWAL_LIKELIHOOD_PERCENT AS
+        CUSTOMER_LIFETIME_VALUE.RENEWAL_LIKELIHOOD_PERCENT,
+
+    CUSTOMER_LIFETIME_VALUE.AVERAGE_ORDER_VALUE AS
+        CUSTOMER_LIFETIME_VALUE.AVERAGE_ORDER_VALUE,
+
+    CUSTOMER_LIFETIME_VALUE.TOTAL_ORDERS AS
+        CUSTOMER_LIFETIME_VALUE.TOTAL_ORDERS
+)
+
+DIMENSIONS (
+
+    -- CUSTOMERS
+
+    CUSTOMERS.CUSTOMER_ID AS
+        CUSTOMERS.CUSTOMER_ID,
+
+    CUSTOMERS.CUSTOMER_NAME AS
+        CUSTOMERS.CUSTOMER_NAME,
+
+    CUSTOMERS.INDUSTRY AS
+        CUSTOMERS.INDUSTRY,
+
+    CUSTOMERS.COMPANY_SIZE AS
+        CUSTOMERS.COMPANY_SIZE,
+
+
+    -- ORDERS
+
+    ORDERS.ORDER_ID AS
+        ORDERS.ORDER_ID,
+
+    ORDERS.CUSTOMER_ID AS
+        ORDERS.CUSTOMER_ID,
+
+    ORDERS.REP_ID AS
+        ORDERS.REP_ID,
+
+    ORDERS.ORDER_DATE AS
+        ORDERS.ORDER_DATE,
+
+
+    -- ORDER ITEMS
+
+    ORDER_ITEMS.ORDER_ITEM_ID AS
+        ORDER_ITEMS.ORDER_ITEM_ID,
+
+    ORDER_ITEMS.ORDER_ID AS
+        ORDER_ITEMS.ORDER_ID,
+
+    ORDER_ITEMS.PRODUCT_ID AS
+        ORDER_ITEMS.PRODUCT_ID,
+
+
+    -- PRODUCTS
+
+    PRODUCTS.PRODUCT_ID AS
+        PRODUCTS.PRODUCT_ID,
+
+    PRODUCTS.PRODUCT_NAME AS
+        PRODUCTS.PRODUCT_NAME,
+
+    PRODUCTS.CATEGORY AS
+        PRODUCTS.CATEGORY,
+
+    PRODUCTS.PRICE AS
+        PRODUCTS.PRICE,
+
+
+    -- SALES REPS
+
+    SALES_REPS.REP_ID AS
+        SALES_REPS.REP_ID,
+
+    SALES_REPS.REP_NAME AS
+        SALES_REPS.REP_NAME,
+
+    SALES_REPS.TERRITORY AS
+        SALES_REPS.TERRITORY,
+
+    SALES_REPS.MANAGER AS
+        SALES_REPS.MANAGER,
+
+
+    -- SALES PERFORMANCE
+
+    SALES_PERFORMANCE.PERF_ID AS
+        SALES_PERFORMANCE.PERF_ID,
+
+    SALES_PERFORMANCE.REP_ID AS
+        SALES_PERFORMANCE.REP_ID,
+
+    SALES_PERFORMANCE.PERFORMANCE_MONTH AS
+        SALES_PERFORMANCE.PERFORMANCE_MONTH,
+
+
+    -- CUSTOMER SEGMENTS
+
+    CUSTOMER_SEGMENTS.SEGMENT_ID AS
+        CUSTOMER_SEGMENTS.SEGMENT_ID,
+
+    CUSTOMER_SEGMENTS.CUSTOMER_ID AS
+        CUSTOMER_SEGMENTS.CUSTOMER_ID,
+
+    CUSTOMER_SEGMENTS.SEGMENT_NAME AS
+        CUSTOMER_SEGMENTS.SEGMENT_NAME,
+
+    CUSTOMER_SEGMENTS.BEHAVIOR_SCORE AS
+        CUSTOMER_SEGMENTS.BEHAVIOR_SCORE,
+
+
+    -- INVENTORY
+
+    PRODUCT_INVENTORY.INVENTORY_ID AS
+        PRODUCT_INVENTORY.INVENTORY_ID,
+
+    PRODUCT_INVENTORY.PRODUCT_ID AS
+        PRODUCT_INVENTORY.PRODUCT_ID,
+
+    PRODUCT_INVENTORY.QUANTITY_AVAILABLE AS
+        PRODUCT_INVENTORY.QUANTITY_AVAILABLE,
+
+    PRODUCT_INVENTORY.REORDER_LEVEL AS
+        PRODUCT_INVENTORY.REORDER_LEVEL,
+
+    PRODUCT_INVENTORY.LAST_RESTOCKED_DATE AS
+        PRODUCT_INVENTORY.LAST_RESTOCKED_DATE,
+
+
+    -- CUSTOMER LIFETIME VALUE
+
+    CUSTOMER_LIFETIME_VALUE.CLV_ID AS
+        CUSTOMER_LIFETIME_VALUE.CLV_ID,
+
+    CUSTOMER_LIFETIME_VALUE.CUSTOMER_ID AS
+        CUSTOMER_LIFETIME_VALUE.CUSTOMER_ID,
+
+    CUSTOMER_LIFETIME_VALUE.LAST_ORDER_DATE AS
+        CUSTOMER_LIFETIME_VALUE.LAST_ORDER_DATE,
+
+
+    -- TERRITORIES
+
+    REP_TERRITORIES.TERRITORY_ID AS
+        REP_TERRITORIES.TERRITORY_ID,
+
+    REP_TERRITORIES.REP_ID AS
+        REP_TERRITORIES.REP_ID,
+
+    REP_TERRITORIES.REGION AS
+        REP_TERRITORIES.REGION
+)
+
+METRICS (
+
+    ORDERS.TOTAL_REVENUE AS
+        SUM(ORDERS.FINAL_VALUE),
+
+    ORDERS.ORDER_COUNT AS
+        COUNT(DISTINCT ORDERS.ORDER_ID),
+
+    ORDER_ITEMS.TOTAL_QUANTITY AS
+        SUM(ORDER_ITEMS.QUANTITY),
+
+    ORDER_ITEMS.AVERAGE_UNIT_PRICE AS
+        AVG(ORDER_ITEMS.UNIT_PRICE),
+
+    SALES_PERFORMANCE.TOTAL_QUOTA AS
+        SUM(SALES_PERFORMANCE.QUOTA),
+
+    SALES_PERFORMANCE.TOTAL_ACTUAL_REVENUE AS
+        SUM(SALES_PERFORMANCE.ACTUAL_REVENUE),
+
+    SALES_PERFORMANCE.AVERAGE_QUOTA_ATTAINMENT AS
+        AVG(SALES_PERFORMANCE.QUOTA_ATTAINMENT_PERCENT),
+
+    SALES_PERFORMANCE.TOTAL_DEALS_WON AS
+        SUM(SALES_PERFORMANCE.DEALS_WON),
+
+    SALES_PERFORMANCE.TOTAL_DEALS_LOST AS
+        SUM(SALES_PERFORMANCE.DEALS_LOST),
+
+    SALES_PERFORMANCE.TOTAL_PIPELINE_VALUE AS
+        SUM(SALES_PERFORMANCE.PIPELINE_VALUE),
+
+    CUSTOMER_LIFETIME_VALUE.TOTAL_CUSTOMER_REVENUE AS
+        SUM(CUSTOMER_LIFETIME_VALUE.TOTAL_REVENUE),
+
+    CUSTOMER_LIFETIME_VALUE.AVERAGE_PREDICTED_LTV AS
+        AVG(CUSTOMER_LIFETIME_VALUE.PREDICTED_LTV),
+
+    CUSTOMER_LIFETIME_VALUE.AVERAGE_CHURN_RISK AS
+        AVG(CUSTOMER_LIFETIME_VALUE.CHURN_RISK_PERCENT),
+
+    CUSTOMER_LIFETIME_VALUE.AVERAGE_RENEWAL_LIKELIHOOD AS
+        AVG(CUSTOMER_LIFETIME_VALUE.RENEWAL_LIKELIHOOD_PERCENT),
+
+    CUSTOMER_LIFETIME_VALUE.AVERAGE_ORDER_VALUE AS
+        AVG(CUSTOMER_LIFETIME_VALUE.AVERAGE_ORDER_VALUE),
+
+    CUSTOMER_LIFETIME_VALUE.TOTAL_CUSTOMER_ORDERS AS
+        SUM(CUSTOMER_LIFETIME_VALUE.TOTAL_ORDERS)
+);
+
+
+-- ============================================================================
+-- STEP 2: VERIFY SEMANTIC VIEW
+-- ============================================================================
+
+SHOW SEMANTIC VIEWS
+IN SCHEMA SALES_DATA.PUBLIC;
+
+DESCRIBE SEMANTIC VIEW
+SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL;
+
+
+-- ============================================================================
+-- STEP 3: CREATE CORTEX AGENT
+-- ============================================================================
+
+CREATE OR REPLACE AGENT SALES_DATA.PUBLIC.SNOWFLAKE_DATA_AGENT
+
+COMMENT = 'Cortex Agent for Sales Data Analysis'
+
+FROM SPECIFICATION
 $$
-You are an expert sales data analyst helping business users understand their sales data.
 
-AVAILABLE TABLES AND DATA:
+models:
+  orchestration: auto
 
-Core Tables:
-1. CUSTOMERS - Customer company information (CUSTOMER_ID, CUSTOMER_NAME, INDUSTRY, COMPANY_SIZE)
-2. ORDERS - Sales transactions (ORDER_ID, CUSTOMER_ID, REP_ID, ORDER_DATE, FINAL_VALUE)
-3. ORDER_ITEMS - Order line items (ORDER_ITEM_ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE)
-4. PRODUCTS - Product catalog (PRODUCT_ID, PRODUCT_NAME, CATEGORY, PRICE)
-5. SALES_REPS - Sales team (REP_ID, REP_NAME, TERRITORY, MANAGER)
-6. REP_TERRITORIES - Territory details (TERRITORY_ID, REP_ID, REGION, QUOTA)
-7. SALES_PERFORMANCE - Monthly metrics (PERF_ID, REP_ID, PERFORMANCE_MONTH, QUOTA, ACTUAL_REVENUE, QUOTA_ATTAINMENT_PERCENT, DEALS_WON, DEALS_LOST, PIPELINE_VALUE)
-8. CUSTOMER_SEGMENTS - Segmentation (SEGMENT_ID, CUSTOMER_ID, SEGMENT_NAME, BEHAVIOR_SCORE)
-9. PRODUCT_INVENTORY - Stock levels (INVENTORY_ID, PRODUCT_ID, QUANTITY_AVAILABLE, REORDER_LEVEL, LAST_RESTOCKED_DATE)
-10. CUSTOMER_LIFETIME_VALUE - Customer value (CLV_ID, CUSTOMER_ID, TOTAL_REVENUE, PREDICTED_LTV, CHURN_RISK_PERCENT, RENEWAL_LIKELIHOOD_PERCENT, AVERAGE_ORDER_VALUE, TOTAL_ORDERS, LAST_ORDER_DATE)
+instructions:
 
-Semantic Tables:
-- DATA_DICTIONARY: Table and column definitions
-- TABLE_RELATIONSHIPS: How tables join together
-- BUSINESS_CONTEXT: Business rules and thresholds
+  response: |
+    You are an expert sales data analyst helping business users
+    understand and analyze their sales data.
 
-BUSINESS LOGIC & RULES:
+    Use the Sales_Analyst tool whenever the user asks a question
+    requiring sales data.
 
-CHURN RISK (from CUSTOMER_LIFETIME_VALUE.CHURN_RISK_PERCENT):
-- HIGH RISK: > 25% - Requires immediate intervention
-- MEDIUM RISK: 15-25% - Monitor closely
-- LOW RISK: < 15% - Routine engagement
+    Always provide a clear business-oriented explanation of the result.
 
-QUOTA PERFORMANCE (from SALES_PERFORMANCE.QUOTA_ATTAINMENT_PERCENT):
-- EXCEEDING: > 110% - Excellent performance
-- ON_TRACK: 85-110% - Meeting expectations
-- UNDERPERFORMING: < 85% - Needs coaching
+    Business Rules:
 
-PRODUCT GROWTH TRENDS:
-- HIGH GROWTH: > 15% - Invest and scale
-- MODERATE GROWTH: 5-15% - Monitor and maintain
-- DECLINING: < 5% - Investigate and revitalize
+    CHURN RISK:
+      HIGH = greater than 25%
+      MEDIUM = 15% to 25%
+      LOW = less than 15%
 
-INVENTORY STATUS (compare QUANTITY_AVAILABLE to REORDER_LEVEL):
-- CRITICAL: Quantity < Reorder Level - Urgent action needed
-- WARNING: Quantity < Reorder Level * 1.5 - Plan reorder soon
-- OK: Quantity >= Reorder Level * 1.5 - Healthy stock
+    QUOTA ATTAINMENT:
+      EXCEEDING = greater than 110%
+      ON_TRACK = 85% to 110%
+      UNDERPERFORMING = less than 85%
 
-CUSTOMER VALUE (from CUSTOMER_LIFETIME_VALUE):
-- Use TOTAL_REVENUE for historical value
-- Use PREDICTED_LTV for forecasting
-- Use RENEWAL_LIKELIHOOD_PERCENT for retention strategy
+    PRODUCT GROWTH:
+      HIGH = greater than 15%
+      MODERATE = 5% to 15%
+      DECLINING = less than 5%
 
-QUERY GENERATION RULES:
+    INVENTORY STATUS:
+      CRITICAL = quantity available less than reorder level
+      WARNING = quantity available less than 1.5 times reorder level
+      OK = quantity available greater than or equal to 1.5 times reorder level
 
-1. ONLY generate SELECT queries (read-only)
-2. JOIN tables correctly:
-   - ORDERS to CUSTOMERS by CUSTOMER_ID
-   - ORDERS to SALES_REPS by REP_ID
-   - ORDER_ITEMS to ORDERS by ORDER_ID
-   - ORDER_ITEMS to PRODUCTS by PRODUCT_ID
-   - SALES_PERFORMANCE to SALES_REPS by REP_ID
-   - CUSTOMER_LIFETIME_VALUE to CUSTOMERS by CUSTOMER_ID
-   - PRODUCT_INVENTORY to PRODUCTS by PRODUCT_ID
-3. Use SUM, COUNT, AVG aggregations appropriately
-4. Apply WHERE filters to answer the question
-5. ORDER BY relevant metrics
-6. Return meaningful results with context
+    Response Guidelines:
 
-ANALYSIS PATTERNS:
+    1. Answer the user's question directly.
+    2. Use the Sales_Analyst tool for data-related questions.
+    3. Do not invent data.
+    4. Clearly explain calculations and business classifications.
+    5. Highlight important risks or exceptions.
+    6. Provide concise business insights.
+    7. When appropriate, provide recommended actions.
 
-Revenue Analysis:
-- Query: SELECT c.CUSTOMER_NAME, SUM(o.FINAL_VALUE) FROM CUSTOMERS c JOIN ORDERS o
-- Use: Find top customers, revenue by segment, revenue trends
+  orchestration: |
+    Use the Sales_Analyst tool for questions involving:
+    - Customers
+    - Orders
+    - Products
+    - Sales representatives
+    - Sales performance
+    - Customer lifetime value
+    - Churn risk
+    - Quota attainment
+    - Inventory
+    - Territories
+    - Revenue analysis
 
-Performance Analysis:
-- Query: SELECT sr.REP_NAME, sp.QUOTA_ATTAINMENT_PERCENT FROM SALES_REPS sr JOIN SALES_PERFORMANCE sp
-- Use: Identify exceeding/underperforming reps, pipeline analysis, deal tracking
+tools:
 
-Risk Analysis:
-- Query: SELECT c.CUSTOMER_NAME, clv.CHURN_RISK_PERCENT FROM CUSTOMERS c JOIN CUSTOMER_LIFETIME_VALUE clv
-- Use: Flag at-risk customers, prioritize retention, measure renewal likelihood
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: Sales_Analyst
+      description: >
+        Analyzes sales data using the SALES_SEMANTIC_MODEL semantic view.
+        Use this tool to answer questions about customers, orders,
+        products, sales representatives, sales performance,
+        customer lifetime value, inventory and territories.
 
-Product Analysis:
-- Query: SELECT p.PRODUCT_NAME, SUM(oi.QUANTITY) FROM PRODUCTS p JOIN ORDER_ITEMS oi
-- Use: Sales by product, category performance, trending products
+tool_resources:
 
-Inventory Analysis:
-- Query: SELECT p.PRODUCT_NAME, pi.QUANTITY_AVAILABLE, pi.REORDER_LEVEL FROM PRODUCTS p JOIN PRODUCT_INVENTORY pi
-- Use: Stock status, reorder alerts, inventory health
+  Sales_Analyst:
+    semantic_view: SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL
 
-RESPONSE FORMAT:
-
-1. Answer the question directly and clearly
-2. Show key data with row counts
-3. Apply business context (risk flags, performance status)
-4. Highlight insights and trends
-5. Suggest action items when relevant
-
-EXAMPLE QUESTIONS I CAN ANSWER:
-
-Customer Questions:
-- "Show me top 10 customers by revenue"
-- "Which customers are at risk of churning?"
-- "List customers by industry"
-- "What is our total customer lifetime value?"
-- "Show high-value customers"
-
-Sales Performance:
-- "Which reps are underperforming?"
-- "Who is exceeding quota?"
-- "Sales performance by territory"
-- "What is the sales pipeline?"
-- "Deals won vs lost analysis"
-
-Product & Inventory:
-- "What products are trending?"
-- "Top 5 products by revenue"
-- "Which products need reordering?"
-- "Inventory status by product"
-- "Product sales by category"
-
-Customer Value:
-- "Customer lifetime value analysis"
-- "Customers with renewal risk"
-- "Average order value by segment"
-- "Customer value distribution"
-
-IMPORTANT:
-- Always use business context when analyzing
-- Flag HIGH RISK items explicitly
-- Show numerical evidence (percentages, amounts, counts)
-- Explain findings in business terms
-- Never query DATA_DICTIONARY or other semantic tables unless user specifically asks
 $$;
 
--- ============================================================================
--- GRANT PERMISSIONS
--- ============================================================================
-
-GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
-GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
 
 -- ============================================================================
--- VERIFY AGENT
+-- STEP 4: GRANT REQUIRED ACCESS
 -- ============================================================================
 
-SELECT AGENT_NAME, AGENT_STATUS, CREATED_AT
-FROM INFORMATION_SCHEMA.AGENTS
-WHERE AGENT_NAME = 'SNOWFLAKE_DATA_AGENT';
+GRANT USAGE
+ON DATABASE SALES_DATA
+TO ROLE ACCOUNTADMIN;
+
+GRANT USAGE
+ON SCHEMA SALES_DATA.PUBLIC
+TO ROLE ACCOUNTADMIN;
+
+GRANT SELECT
+ON ALL TABLES
+IN SCHEMA SALES_DATA.PUBLIC
+TO ROLE ACCOUNTADMIN;
+
+GRANT USAGE
+ON AGENT SALES_DATA.PUBLIC.SNOWFLAKE_DATA_AGENT
+TO ROLE ACCOUNTADMIN;
+
+
+-- ============================================================================
+-- STEP 5: VERIFY AGENT
+-- ============================================================================
+
+SHOW AGENTS
+IN SCHEMA SALES_DATA.PUBLIC;
+
+DESCRIBE AGENT
+SALES_DATA.PUBLIC.SNOWFLAKE_DATA_AGENT;
