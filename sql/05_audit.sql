@@ -18,17 +18,10 @@ USE SCHEMA PUBLIC;
 CREATE OR REPLACE PROCEDURE CAPTURE_ANALYST_QUERIES_FROM_HISTORY()
 RETURNS VARCHAR
 LANGUAGE SQL
+EXECUTE AS CALLER
 AS
 BEGIN
-
-    INSERT INTO ANALYST_QUERY_LOG
-    (
-        QUERY_TIMESTAMP,
-        USER_NAME,
-        QUERY_TEXT,
-        RESPONSE,
-        EXECUTION_TIME_SECONDS
-    )
+    INSERT INTO ANALYST_QUERY_LOG (QUERY_TIMESTAMP, USER_NAME, QUERY_TEXT, RESPONSE, EXECUTION_TIME_SECONDS)
     SELECT
         qh.START_TIME,
         qh.USER_NAME,
@@ -41,30 +34,27 @@ BEGIN
       AND qh.EXECUTION_STATUS = 'SUCCESS'
       AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_FROM_HISTORY%'
       AND qh.QUERY_TEXT NOT ILIKE '%CAPTURE_ANALYST_QUERIES_TASK%'
-      AND NOT EXISTS
-      (
-          SELECT 1
-          FROM ANALYST_QUERY_LOG aql
+      AND NOT EXISTS (
+          SELECT 1 FROM ANALYST_QUERY_LOG aql
           WHERE aql.USER_NAME = qh.USER_NAME
           AND ABS(DATEDIFF(second, aql.QUERY_TIMESTAMP, qh.START_TIME)) < 60
       )
     ORDER BY qh.START_TIME
     LIMIT 100;
-
-    RETURN 'Captured Analyst queries from history.';
-
+    
+    RETURN 'Capture procedure executed successfully';
 END;
-
+ 
 -- ============================================================================
--- CREATE TASK TO RUN EVERY MINUTE
+-- STEP 3: CREATE TASK TO RUN EVERY MINUTE
 -- ============================================================================
-
+ 
 CREATE OR REPLACE TASK CAPTURE_ANALYST_QUERIES_TASK
     WAREHOUSE = COMPUTE_WH
     SCHEDULE = '1 MINUTE'
     AS
     CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY();
-
+ 
 -- ============================================================================
 -- ENABLE THE TASK
 -- ============================================================================
