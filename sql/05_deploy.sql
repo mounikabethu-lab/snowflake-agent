@@ -11,7 +11,7 @@ USE SCHEMA PUBLIC;
 
 SELECT '=== DEPLOYMENT VERIFICATION ===' AS STATUS;
 
-SELECT 'TABLES' AS OBJECT_TYPE, TABLE_NAME, ROW_COUNT
+SELECT 'TABLES' AS OBJECT_TYPE, TABLE_NAME
 FROM INFORMATION_SCHEMA.TABLES
 WHERE TABLE_SCHEMA = 'PUBLIC'
 AND TABLE_NAME IN ('DATA_DICTIONARY', 'TABLE_RELATIONSHIPS', 'BUSINESS_CONTEXT', 'AGENT_QUERY_LOG', 'AGENT_SAMPLE_QUERIES', 'AGENT_INSTRUCTIONS', 'KNOWLEDGE_BASE')
@@ -28,16 +28,7 @@ AND FUNCTION_NAME IN ('GET_TABLE_INFO', 'GET_TABLE_JOINS', 'GET_BUSINESS_RULES',
 ORDER BY FUNCTION_NAME;
 
 -- ============================================================================
--- STEP 3: VERIFY PROCEDURES CREATED
--- ============================================================================
-
-SELECT 'PROCEDURES' AS OBJECT_TYPE, PROCEDURE_NAME
-FROM INFORMATION_SCHEMA.PROCEDURES
-WHERE PROCEDURE_SCHEMA = 'PUBLIC'
-AND PROCEDURE_NAME = 'LOG_AGENT_QUERY';
-
--- ============================================================================
--- STEP 4: VERIFY VIEWS CREATED
+-- STEP 3: VERIFY VIEWS CREATED
 -- ============================================================================
 
 SELECT 'VIEWS' AS OBJECT_TYPE, TABLE_NAME
@@ -47,7 +38,7 @@ AND TABLE_TYPE = 'VIEW'
 AND TABLE_NAME = 'KEY_METRICS';
 
 -- ============================================================================
--- STEP 5: DATA SUMMARY
+-- STEP 4: DATA SUMMARY
 -- ============================================================================
 
 SELECT '=== DATA SUMMARY ===' AS STATUS;
@@ -74,13 +65,6 @@ FROM BUSINESS_CONTEXT
 UNION ALL
 
 SELECT 
-    'AGENT_SAMPLE_QUERIES',
-    COUNT(*)
-FROM AGENT_SAMPLE_QUERIES
-
-UNION ALL
-
-SELECT 
     'AGENT_INSTRUCTIONS',
     COUNT(*)
 FROM AGENT_INSTRUCTIONS
@@ -91,3 +75,4 @@ SELECT
     'KNOWLEDGE_BASE',
     COUNT(*)
 FROM KNOWLEDGE_BASE;
+
