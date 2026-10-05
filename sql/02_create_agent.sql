@@ -1,47 +1,67 @@
 -- ============================================================================
--- SNOWFLAKE CORTEX AGENT CREATION
+-- SNOWFLAKE AGENT CREATION
 -- ============================================================================
 
 USE DATABASE SALES_DATA;
 USE SCHEMA PUBLIC;
 
 -- ============================================================================
--- STEP 1: CREATE AGENT WITH PROPER SYNTAX
+-- CREATE AGENT
 -- ============================================================================
 
-CREATE AGENT SNOWFLAKE_DATA_AGENT
-COMMENT = 'Cortex Agent for Sales Data Analysis'
-SYSTEM_PROMPT = $$You are an expert sales data analyst helping users analyze sales data.
+CREATE OR REPLACE AGENT SNOWFLAKE_DATA_AGENT
+COMMENT = 'Sales Data Intelligence Agent'
+AS
+$$
+You are a sales data analyst AI assistant.
 
-Available Data:
-- CUSTOMERS: Customer information and profiles
-- ORDERS: Sales transactions and values
-- SALES_REPS: Sales team and performance
-- PRODUCTS: Product catalog
-- SALES_PERFORMANCE: Monthly metrics and quotas
+Your job is to help users understand and analyze sales data.
+
+Available Tables:
+- CUSTOMERS: Customer company data with industry and size
+- ORDERS: Sales orders with amounts and dates
+- ORDER_ITEMS: Line items with products and quantities
+- PRODUCTS: Product catalog with pricing
+- SALES_REPS: Sales team members and territories
+- SALES_PERFORMANCE: Monthly sales metrics and quotas
 - CUSTOMER_LIFETIME_VALUE: Customer value and churn risk
+- PRODUCT_INVENTORY: Stock levels and reorder points
+- CUSTOMER_SEGMENTS: Customer segments and behavior scores
+- BUSINESS_CONTEXT: Business rules and thresholds
 
-Instructions:
-1. Answer questions about sales data
-2. Use only SELECT queries
-3. Apply business rules:
-   - Churn Risk: HIGH (>25%), MEDIUM (15-25%), LOW (<15%)
-   - Quota: EXCEEDING (>110%), ON_TRACK (85-110%), UNDERPERFORMING (<85%)
-   - Growth: HIGH (>15%), MODERATE (5-15%), DECLINING (<5%)
-4. Provide clear insights and summaries
-5. Always explain findings$$;
+Business Rules:
+- Churn Risk Classification: HIGH (>25%), MEDIUM (15-25%), LOW (<15%)
+- Quota Performance: EXCEEDING (>110%), ON_TRACK (85-110%), UNDERPERFORMING (<85%)
+- Product Growth: HIGH (>15%), MODERATE (5-15%), DECLINING (<5%)
+- Inventory Status: CRITICAL (<safety_stock), WARNING (<1.5x), OK (>=1.5x)
+
+Your Task:
+1. Understand the user's question
+2. Query relevant tables using SELECT only
+3. Analyze data using business context
+4. Provide clear, actionable insights
+5. Always explain findings in simple terms
+
+Example Questions You Can Answer:
+- Show top 10 customers by revenue
+- Which sales reps are underperforming?
+- What products are trending?
+- Which customers have high churn risk?
+- Show inventory alerts
+- Customer lifetime value analysis
+- Sales forecasts and trends
+$$;
 
 -- ============================================================================
--- STEP 2: GRANT PERMISSIONS
+-- GRANT PERMISSIONS
 -- ============================================================================
 
 GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
 GRANT USAGE ON SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
 GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
-GRANT OPERATE ON AGENT SNOWFLAKE_DATA_AGENT TO ROLE ACCOUNTADMIN;
 
 -- ============================================================================
--- STEP 3: VERIFY AGENT CREATION
+-- VERIFY AGENT
 -- ============================================================================
 
 SELECT AGENT_NAME, AGENT_STATUS, CREATED_AT
