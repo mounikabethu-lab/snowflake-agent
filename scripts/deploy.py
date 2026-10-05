@@ -1,235 +1,186 @@
-"""
-Snowflake Agent Deployment Script
-Deploy all SQL files from the sql/ directory.
-"""
+# Snowflake Agent Deployment Script
 
 import os
 import glob
 import sys
-
 import snowflake.connector
-from dotenv import load_dotenv
 
-load_dotenv()
-
-def is_ci_environment():
-return (
-os.getenv("GITHUB_ACTIONS") == "true"
-or os.getenv("CI") == "true"
-)
-
-def load_config():
-config = {
-"account": os.getenv("SNOWFLAKE_ACCOUNT"),
-"user": os.getenv("SNOWFLAKE_USER"),
-"password": os.getenv("SNOWFLAKE_PASSWORD"),
-"database": os.getenv("SNOWFLAKE_DATABASE"),
-"warehouse": os.getenv("SNOWFLAKE_WAREHOUSE"),
-}
-
-```
-required = [
-    "account",
-    "user",
-    "password",
-    "database",
-    "warehouse",
-]
-
-for field in required:
-    if not config[field]:
-        print(f"ERROR: Missing {field}")
-        sys.exit(1)
-
-return config
-```
-
-def get_sql_files():
-sql_files = sorted(glob.glob("sql/*.sql"))
-
-```
-if not sql_files:
-    print("ERROR: No SQL files found in sql/")
-    sys.exit(1)
-
-return sql_files
-```
-
-def connect_snowflake(config):
-print("Connecting to Snowflake...")
-
-```
-try:
-    conn = snowflake.connector.connect(
-        account=config["account"],
-        user=config["user"],
-        password=config["password"],
-        database=config["database"],
-        warehouse=config["warehouse"],
-    )
-
-    print("Connected successfully.")
-    return conn
-
-except Exception as e:
-    print(f"ERROR: Connection failed: {e}")
-    sys.exit(1)
-```
 
 def split_sql_statements(sql):
-"""
-Split SQL statements while preserving \(...\) blocks.
+    statements = []
+    current = []
+    inside_dollar_block = False
+    i = 0
 
-```
-Semicolons inside a $$ block are NOT treated as
-statement separators.
-"""
+    while i < len(sql):
 
-statements = []
-current = []
+        if sql[i:i + 2] == "$$":
+            current.append("$$")
+            inside_dollar_block = not inside_dollar_block
+            i += 2
+            continue
 
-inside_dollar_block = False
-i = 0
+        char = sql[i]
 
-while i < len(sql):
+        if char == ";" and not inside_dollar_block:
+            statement = "".join(current).strip()
 
-    if sql[i:i + 2] == "$$":
-        current.append("$$")
-        inside_dollar_block = not inside_dollar_block
-        i += 2
-        continue
+            if statement:
+                statements.append(statement)
 
-    char = sql[i]
+            current = []
+            i += 1
+            continue
 
-    if char == ";" and not inside_dollar_block:
-        statement = "".join(current).strip()
-
-        if statement:
-            statements.append(statement)
-
-        current = []
+        current.append(char)
         i += 1
-        continue
 
-    current.append(char)
-    i += 1
+    statement = "".join(current).strip()
 
-final_statement = "".join(current).strip()
+    if statement:
+        statements.append(statement)
 
-if final_statement:
-    statements.append(final_statement)
+    if inside_dollar_block:
+        raise Exception("Unclosed $$ block in SQL file")
 
-if inside_dollar_block:
-    raise ValueError(
-        "Unclosed $$ block found in SQL file."
-    )
+    return statements
 
-return statements
-```
-
-def execute_sql_files(conn, sql_files):
-cursor = conn.cursor()
-
-```
-try:
-
-    for sql_file in sql_files:
-
-        print()
-        print(f"Deploying: {sql_file}")
-
-        with open(
-            sql_file,
-            "r",
-            encoding="utf-8",
-        ) as file:
-            sql = file.read()
-
-        statements = split_sql_statements(sql)
-
-        print(
-            f"Found {len(statements)} statement(s)"
-        )
-
-        for number, statement in enumerate(
-            statements,
-            start=1,
-        ):
-
-            print(
-                f"  Executing statement "
-                f"{number}/{len(statements)}..."
-            )
-
-            cursor.execute(statement)
-
-        conn.commit()
-
-        print(
-            f"SUCCESS: {sql_file}"
-        )
-
-except Exception as e:
-
-    print()
-    print(
-        f"ERROR while deploying {sql_file}:"
-    )
-    print(e)
-
-    try:
-        conn.rollback()
-    except Exception:
-        pass
-
-    sys.exit(1)
-
-finally:
-    cursor.close()
-```
 
 def main():
 
-```
-print()
-print("========================================")
-print("SNOWFLAKE AGENT DEPLOYMENT")
-print("========================================")
+    print("========================================")
+    print("SNOWFLAKE DEPLOYMENT")
+    print("========================================")
 
-if is_ci_environment():
-    print("Environment: GitHub Actions")
-else:
-    print("Environment: Local")
+    account = os.environ.get("SNOWFLAKE_ACCOUNT")
+    user = os.environ.get("SNOWFLAKE_USER")
+    password = os.environ.get("SNOWFLAKE_PASSWORD")
+    database = os.environ.get("SNOWFLAKE_DATABASE")
+    warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE")
 
-sql_files = get_sql_files()
+    if not account:
+        print("ERROR: SNOWFLAKE_ACCOUNT is missing")
+        sys.exit(1)
 
-print()
-print("SQL files:")
+    if not user:
+        print("ERROR: SNOWFLAKE_USER is missing")
+        sys.exit(1)
 
-for sql_file in sql_files:
-    print(f"  - {sql_file}")
+    if not password:
+        print("ERROR: SNOWFLAKE_PASSWORD is missing")
+        sys.exit(1)
 
-config = load_config()
+    if not database:
+        print("ERROR: SNOWFLAKE_DATABASE is missing")
+        sys.exit(1)
 
-print()
-print(f"Database: {config['database']}")
-print(f"Warehouse: {config['warehouse']}")
+    if not warehouse:
+        print("ERROR: SNOWFLAKE_WAREHOUSE is missing")
+        sys.exit(1)
 
-conn = connect_snowflake(config)
+    sql_files = sorted(glob.glob("sql/*.sql"))
 
-try:
-    execute_sql_files(
-        conn,
-        sql_files,
-    )
-finally:
-    conn.close()
+    if not sql_files:
+        print("ERROR: No SQL files found")
+        sys.exit(1)
 
-print()
-print("========================================")
-print("DEPLOYMENT COMPLETED SUCCESSFULLY")
-print("========================================")
-```
+    print("Database:", database)
+    print("Warehouse:", warehouse)
+    print()
+    print("SQL files:")
 
-if **name** == "**main**":
-main()
+    for sql_file in sql_files:
+        print(" -", sql_file)
+
+    print()
+    print("Connecting to Snowflake...")
+
+    try:
+
+        conn = snowflake.connector.connect(
+            account=account,
+            user=user,
+            password=password,
+            database=database,
+            warehouse=warehouse
+        )
+
+        print("Connected successfully")
+        print()
+
+    except Exception as e:
+
+        print("ERROR: Snowflake connection failed")
+        print(e)
+        sys.exit(1)
+
+    cursor = conn.cursor()
+
+    try:
+
+        for sql_file in sql_files:
+
+            print("----------------------------------------")
+            print("Deploying:", sql_file)
+            print("----------------------------------------")
+
+            with open(
+                sql_file,
+                "r",
+                encoding="utf-8"
+            ) as file:
+
+                sql = file.read()
+
+            statements = split_sql_statements(sql)
+
+            print(
+                "Found",
+                len(statements),
+                "statement(s)"
+            )
+
+            for number, statement in enumerate(
+                statements,
+                1
+            ):
+
+                print(
+                    "Executing statement",
+                    number,
+                    "of",
+                    len(statements)
+                )
+
+                cursor.execute(statement)
+
+            conn.commit()
+
+            print("SUCCESS:", sql_file)
+            print()
+
+    except Exception as e:
+
+        print()
+        print("ERROR during deployment:")
+        print(e)
+
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+        sys.exit(1)
+
+    finally:
+
+        cursor.close()
+        conn.close()
+
+    print("========================================")
+    print("DEPLOYMENT COMPLETED SUCCESSFULLY")
+    print("========================================")
+
+
+if __name__ == "__main__":
+    main()
