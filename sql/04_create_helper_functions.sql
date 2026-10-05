@@ -1,0 +1,44 @@
+-- ============================================================================
+-- CREATE HELPER FUNCTIONS
+-- ============================================================================
+
+USE DATABASE SALES_DATA;
+USE SCHEMA PUBLIC;
+
+-- ============================================================================
+-- HELPER FUNCTIONS FOR AGENT
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION GET_ALL_AVAILABLE_TABLES()
+RETURNS TABLE (TABLE_NAME VARCHAR, TABLE_DESCRIPTION VARCHAR)
+LANGUAGE SQL
+AS $$
+SELECT DISTINCT TABLE_NAME, TABLE_DESCRIPTION
+FROM DATA_DICTIONARY
+ORDER BY TABLE_NAME
+$$;
+
+CREATE OR REPLACE FUNCTION GET_TABLE_COLUMNS(table_name_param VARCHAR)
+RETURNS TABLE (COLUMN_NAME VARCHAR, COLUMN_TYPE VARCHAR, COLUMN_DESCRIPTION VARCHAR)
+LANGUAGE SQL
+AS $$
+SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DESCRIPTION
+FROM DATA_DICTIONARY
+WHERE UPPER(TABLE_NAME) = UPPER(table_name_param)
+ORDER BY COLUMN_NAME
+$$;
+
+CREATE OR REPLACE FUNCTION GET_TABLE_RELATIONSHIPS_INFO()
+RETURNS TABLE (SOURCE_TABLE VARCHAR, TARGET_TABLE VARCHAR, JOIN_ON VARCHAR)
+LANGUAGE SQL
+AS $$
+SELECT SOURCE_TABLE, TARGET_TABLE, CONCAT(SOURCE_COLUMN, ' = ', TARGET_COLUMN)
+FROM TABLE_RELATIONSHIPS
+ORDER BY SOURCE_TABLE, TARGET_TABLE
+$$;
+
+-- ============================================================================
+-- VERIFY FUNCTIONS
+-- ============================================================================
+
+SELECT 'Helper Functions Created' AS STATUS;
