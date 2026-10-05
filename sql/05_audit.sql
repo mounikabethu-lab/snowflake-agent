@@ -65,4 +65,11 @@ CREATE OR REPLACE TASK CAPTURE_ANALYST_QUERIES_TASK
     WAREHOUSE = COMPUTE_WH
     SCHEDULE = '1 MINUTE'
 AS
-    CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY()
+    CALL CAPTURE_ANALYST_QUERIES_FROM_HISTORY();
+
+
+-- ============================================================================
+-- ENABLE TASK
+-- ============================================================================
+
+-- ALTER TASK CAPTURE_ANALYST_QUERIES_TASK RESUME;
