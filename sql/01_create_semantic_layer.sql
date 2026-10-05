@@ -213,16 +213,3 @@ VALUES
 ('BC019', 'KPI', 'INVENTORY_TURNOVER_TARGET', 'Target inventory turnover ratio', 4.00, 'OPERATIONAL'),
 ('BC020', 'KPI', 'FORECAST_ACCURACY_TARGET', 'Target forecast accuracy percentage', 85.00, 'PLANNING');
 
--- ============================================================================
--- STEP 7: VERIFY TABLES CREATED
--- ============================================================================
-
-SELECT 'DATA_DICTIONARY' AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM DATA_DICTIONARY
-UNION ALL
-SELECT 'TABLE_RELATIONSHIPS' AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM TABLE_RELATIONSHIPS
-UNION ALL
-SELECT 'BUSINESS_CONTEXT' AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM BUSINESS_CONTEXT;
-
--- ============================================================================
--- END OF SEMANTIC LAYER CREATION
--- ============================================================================

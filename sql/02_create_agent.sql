@@ -1,76 +1,91 @@
 -- ============================================================================
--- SNOWFLAKE NATIVE AGENT CREATION
--- Purpose: Create Cortex-powered agent for natural language queries
--- Environment: DEV/TEST/PROD (environment-agnostic)
+-- CREATE AGENT FUNCTIONS
 -- ============================================================================
 
 USE DATABASE SALES_DATA;
 USE SCHEMA PUBLIC;
 
 -- ============================================================================
--- STEP 1: CREATE AGENT
+-- CREATE HELPER FUNCTIONS
 -- ============================================================================
 
-CREATE OR REPLACE AGENT SNOWFLAKE_DATA_AGENT
-    USER_CREATED_TOOL = TRUE
-    COMMENT = 'Cortex-powered agent for natural language Snowflake queries'
-AS $$
-You are an expert Snowflake analyst and SQL specialist. Your role is to help users query a sales database.
+CREATE OR REPLACE FUNCTION GET_TABLE_INFO(table_name_param VARCHAR)
+RETURNS TABLE (
+    TABLE_NAME VARCHAR,
+    COLUMN_NAME VARCHAR,
+    COLUMN_TYPE VARCHAR,
+    COLUMN_DESCRIPTION VARCHAR
+)
+LANGUAGE SQL
+AS
+$$
+    SELECT 
+        TABLE_NAME,
+        COLUMN_NAME,
+        COLUMN_TYPE,
+        COLUMN_DESCRIPTION
+    FROM DATA_DICTIONARY
+    WHERE UPPER(TABLE_NAME) = UPPER(table_name_param)
+    ORDER BY COLUMN_NAME
+$$;
 
-IMPORTANT RULES:
-1. ONLY generate SELECT queries - read-only access
-2. ALWAYS reference the semantic layer tables to understand schema:
-   - DATA_DICTIONARY: Contains table and column information
-   - TABLE_RELATIONSHIPS: Contains join information
-   - BUSINESS_CONTEXT: Contains business rules and thresholds
-3. Use correct JOINs based on foreign key relationships
-4. Return ALL results (no row limits unless requested)
-5. Format results clearly and explain what data is shown
-6. Apply business context thresholds when relevant:
-   - Churn Risk: HIGH_RISK > 25%, MEDIUM_RISK > 15%
-   - Quota: EXCEEDING > 110%, ON_TRACK 85-110%, UNDERPERFORMING < 85%
-   - Inventory: CRITICAL < safety_stock, WARNING < safety_stock * 1.5
-   - Growth: HIGH_GROWTH > 15%, MODERATE > 5%, DECLINING ≤ 5%
+CREATE OR REPLACE FUNCTION GET_TABLE_JOINS(table_name_param VARCHAR)
+RETURNS TABLE (
+    SOURCE_TABLE VARCHAR,
+    TARGET_TABLE VARCHAR,
+    JOIN_COLUMN VARCHAR,
+    RELATIONSHIP_DESCRIPTION VARCHAR
+)
+LANGUAGE SQL
+AS
+$$
+    SELECT 
+        SOURCE_TABLE,
+        TARGET_TABLE,
+        CONCAT(SOURCE_COLUMN, ' = ', TARGET_COLUMN),
+        RELATIONSHIP_DESCRIPTION
+    FROM TABLE_RELATIONSHIPS
+    WHERE UPPER(SOURCE_TABLE) = UPPER(table_name_param)
+    OR UPPER(TARGET_TABLE) = UPPER(table_name_param)
+$$;
 
-WORKFLOW:
-1. Understand the user question
-2. Query DATA_DICTIONARY to find relevant tables
-3. Query TABLE_RELATIONSHIPS to find correct JOINs
-4. Query BUSINESS_CONTEXT for applicable thresholds
-5. Generate the SQL query
-6. Execute and return results
+CREATE OR REPLACE FUNCTION GET_BUSINESS_RULES(rule_type_param VARCHAR)
+RETURNS TABLE (
+    RULE_NAME VARCHAR,
+    RULE_DESCRIPTION VARCHAR,
+    THRESHOLD_VALUE NUMBER
+)
+LANGUAGE SQL
+AS
+$$
+    SELECT 
+        RULE_NAME,
+        RULE_DESCRIPTION,
+        THRESHOLD_VALUE
+    FROM BUSINESS_CONTEXT
+    WHERE RULE_TYPE = rule_type_param
+$$;
 
-EXAMPLE QUESTIONS YOU SHOULD HANDLE:
-- "Show me top 10 customers by revenue"
-- "Which sales reps are underperforming?"
-- "What products are trending?"
-- "Which customers have high churn risk?"
-- "Show me inventory alerts"
-- "What's our demand forecast for next month?"
-- "Customer lifetime value analysis"
-- "Top performing products by category"
-- "Sales performance comparison between reps"
-- "Manufacturing deadlines and risks"
-
-If a question is ambiguous, ask for clarification before generating SQL.
+CREATE OR REPLACE FUNCTION GET_ALL_TABLES()
+RETURNS TABLE (
+    TABLE_NAME VARCHAR,
+    TABLE_DESCRIPTION VARCHAR
+)
+LANGUAGE SQL
+AS
+$$
+    SELECT DISTINCT
+        TABLE_NAME,
+        TABLE_DESCRIPTION
+    FROM DATA_DICTIONARY
+    ORDER BY TABLE_NAME
 $$;
 
 -- ============================================================================
--- STEP 2: GRANT PERMISSIONS TO AGENT
+-- VERIFY FUNCTION CREATION
 -- ============================================================================
 
-GRANT USAGE ON DATABASE SALES_DATA TO ROLE ACCOUNTADMIN;
-GRANT USAGE ON SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
-GRANT SELECT ON ALL TABLES IN SCHEMA PUBLIC TO ROLE ACCOUNTADMIN;
-
--- ============================================================================
--- STEP 3: VERIFY AGENT CREATION
--- ============================================================================
-
-SELECT AGENT_NAME, AGENT_STATUS, CREATED_AT
-FROM INFORMATION_SCHEMA.AGENTS
-WHERE AGENT_NAME = 'SNOWFLAKE_DATA_AGENT';
-
--- ============================================================================
--- END OF AGENT CREATION
--- ============================================================================
+SELECT FUNCTION_NAME, FUNCTION_TYPE
+FROM INFORMATION_SCHEMA.FUNCTIONS
+WHERE FUNCTION_SCHEMA = 'PUBLIC'
+AND FUNCTION_NAME IN ('GET_TABLE_INFO', 'GET_TABLE_JOINS', 'GET_BUSINESS_RULES', 'GET_ALL_TABLES');
