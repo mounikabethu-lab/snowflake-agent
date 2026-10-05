@@ -59,7 +59,7 @@ BEGIN
     RETURN 'Cortex Analyst requests captured successfully';
 
 END;
-$$
+$$;
 
 
 -- ============================================================================
