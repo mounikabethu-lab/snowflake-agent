@@ -1,0 +1,6 @@
+# Streamlit secrets - NEVER commit to git
+secrets.toml
+
+# Streamlit cache files
+.streamlit/
+cache/

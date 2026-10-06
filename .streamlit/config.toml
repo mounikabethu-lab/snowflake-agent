@@ -1,0 +1,81 @@
+# ============================================================================
+# STREAMLIT CONFIGURATION
+# ============================================================================
+# This file configures Streamlit settings for the application.
+# Place this file at: .streamlit/config.toml
+
+# ============================================================================
+# CLIENT SETTINGS
+# ============================================================================
+[client]
+# Show detailed error messages
+showErrorDetails = true
+
+# Max file upload size (MB)
+maxUploadSize = 200
+
+# ============================================================================
+# THEME SETTINGS
+# ============================================================================
+[theme]
+# Primary color for buttons and highlights
+primaryColor = "#0066cc"
+
+# Background color of the main app
+backgroundColor = "#ffffff"
+
+# Secondary background color (sidebar, etc)
+secondaryBackgroundColor = "#f8f9fa"
+
+# Text color
+textColor = "#262730"
+
+# Font family
+font = "sans serif"
+
+# ============================================================================
+# SERVER SETTINGS
+# ============================================================================
+[server]
+# Port to run on
+port = 8501
+
+# Enable XSRF protection
+enableXsrfProtection = true
+
+# Headless mode (for cloud deployment)
+headless = true
+
+# Max message size (MB)
+maxMessageSize = 200
+
+# ============================================================================
+# LOGGER SETTINGS
+# ============================================================================
+[logger]
+# Log level: debug, info, warning, error, critical
+level = "info"
+
+# ============================================================================
+# BROWSER SETTINGS
+# ============================================================================
+[browser]
+# Gather usage statistics
+gatherUsageStats = true
+
+# Server address
+serverAddress = "localhost"
+
+# ============================================================================
+# RUNNER SETTINGS
+# ============================================================================
+[runner]
+# Run script on file change (for development)
+magicEnabled = true
+
+# ============================================================================
+# DEPRECATION SETTINGS
+# ============================================================================
+[deprecation]
+# Show deprecation warnings
+showPyplotGlobalUse = false
