@@ -105,14 +105,14 @@ st.markdown(
 
 
 # =============================================================================
-# SESSION
+# SNOWFLAKE SESSION
 # =============================================================================
 
 session = get_active_session()
 
 
 # =============================================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 # =============================================================================
 
 if "analyst_messages" not in st.session_state:
@@ -153,20 +153,24 @@ if "question_input" not in st.session_state:
 
 
 # =============================================================================
-# HELPER - CURRENT USER
+# CURRENT USER
 # =============================================================================
 
 @st.cache_data(ttl=300)
 def get_current_user():
+
     try:
+
         result = session.sql(
             "SELECT CURRENT_USER() AS USER_NAME"
         ).collect()
 
         if result:
+
             return result[0]["USER_NAME"]
 
     except Exception:
+
         pass
 
     return "UNKNOWN_USER"
@@ -176,24 +180,22 @@ CURRENT_USER = get_current_user()
 
 
 # =============================================================================
-# DATE RANGE HELPER
+# DATE RANGE
 # =============================================================================
 
 def get_date_range(date_filter):
-    """
-    Returns a human-readable date filter description.
-    The actual filtering is passed to Cortex Analyst as business context.
-    """
 
     today = pd.Timestamp.today().normalize()
 
     if date_filter == "Today":
+
         return (
             f"{today.strftime('%Y-%m-%d')} to "
             f"{today.strftime('%Y-%m-%d')}"
         )
 
     if date_filter == "Yesterday":
+
         yesterday = today - pd.Timedelta(days=1)
 
         return (
@@ -202,6 +204,7 @@ def get_date_range(date_filter):
         )
 
     if date_filter == "Last 7 Days":
+
         start = today - pd.Timedelta(days=6)
 
         return (
@@ -210,6 +213,7 @@ def get_date_range(date_filter):
         )
 
     if date_filter == "Last 30 Days":
+
         start = today - pd.Timedelta(days=29)
 
         return (
@@ -218,6 +222,7 @@ def get_date_range(date_filter):
         )
 
     if date_filter == "Last 90 Days":
+
         start = today - pd.Timedelta(days=89)
 
         return (
@@ -226,6 +231,7 @@ def get_date_range(date_filter):
         )
 
     if date_filter == "Month to Date":
+
         start = today.replace(day=1)
 
         return (
@@ -263,7 +269,9 @@ def get_date_range(date_filter):
 
         first_this_month = today.replace(day=1)
 
-        last_month_end = first_this_month - pd.Timedelta(days=1)
+        last_month_end = (
+            first_this_month - pd.Timedelta(days=1)
+        )
 
         last_month_start = last_month_end.replace(day=1)
 
@@ -274,7 +282,9 @@ def get_date_range(date_filter):
 
     if date_filter == "Last Quarter":
 
-        current_quarter = (today.month - 1) // 3
+        current_quarter = (
+            (today.month - 1) // 3
+        )
 
         if current_quarter == 0:
 
@@ -284,7 +294,9 @@ def get_date_range(date_filter):
         else:
 
             year = today.year
-            start_month = (current_quarter - 1) * 3 + 1
+            start_month = (
+                (current_quarter - 1) * 3 + 1
+            )
 
         start = pd.Timestamp(
             year=year,
@@ -410,41 +422,49 @@ def build_business_context():
     )
 
     if region:
+
         context.append(
             f"Region filter: {region}"
         )
 
     if territory:
+
         context.append(
             f"Territory filter: {territory}"
         )
 
     if sales_rep:
+
         context.append(
             f"Sales Rep filter: {sales_rep}"
         )
 
     if customer:
+
         context.append(
             f"Customer filter: {customer}"
         )
 
     if industry:
+
         context.append(
             f"Industry filter: {industry}"
         )
 
     if product:
+
         context.append(
             f"Product filter: {product}"
         )
 
     if product_category:
+
         context.append(
             f"Product Category filter: {product_category}"
         )
 
     if channel:
+
         context.append(
             f"Channel filter: {channel}"
         )
@@ -453,7 +473,7 @@ def build_business_context():
 
 
 # =============================================================================
-# BUILD CORTEX ANALYST QUESTION
+# BUILD ANALYST QUESTION
 # =============================================================================
 
 def build_analyst_question(question):
@@ -463,7 +483,7 @@ def build_analyst_question(question):
     analyst_question = f"""
 You are Sales AI, an enterprise sales analytics assistant.
 
-Answer the user's business question using the semantic view:
+Use this governed semantic view as the source of truth:
 
 {SEMANTIC_VIEW}
 
@@ -475,51 +495,54 @@ User question:
 
 Instructions:
 
-1. Use the semantic model as the source of truth.
-2. Answer using the available business metrics and dimensions.
-3. Do not invent columns, metrics, customers, products, sales representatives,
-   regions, or other business data.
-4. If the question asks for rankings such as top 10, return the requested
-   number of records.
-5. Prefer revenue, sales, quantity, margin, customer, product, sales rep,
-   region, territory, and channel metrics when they are available in the
-   semantic model.
-6. Apply the date filter when the question does not explicitly specify
-   another date range.
-7. Apply the selected business filters when relevant.
-8. If a comparison is requested, clearly explain the comparison.
-9. Provide a concise business explanation along with the SQL when appropriate.
-10. Generate read-only SQL only.
-11. Do not generate INSERT, UPDATE, DELETE, MERGE, CREATE, ALTER, DROP,
-    TRUNCATE, CALL, GRANT, REVOKE, USE, or other administrative statements.
-12. Never expose credentials, secrets, tokens, or system information.
-13. Format the answer for business users.
-14. If the requested information is unavailable from the semantic model,
-    clearly state that instead of guessing.
+1. Answer the user's question using only information available through
+   the semantic model.
+
+2. Do not invent columns, metrics, dimensions, customers, products,
+   sales representatives, regions, territories, or other business data.
+
+3. For ranking questions such as top 10, return the requested number
+   of records.
+
+4. Use the appropriate revenue, sales, quantity, margin, customer,
+   product, sales representative, region, territory, or channel
+   measures available in the semantic model.
+
+5. Apply the selected date filter when the user does not explicitly
+   specify another date range.
+
+6. Apply selected business filters when they are relevant.
+
+7. If a comparison is requested, clearly explain the comparison.
+
+8. Provide a concise business-friendly explanation.
+
+9. Generate read-only SQL only.
+
+10. Do not generate INSERT, UPDATE, DELETE, MERGE, CREATE, ALTER,
+    DROP, TRUNCATE, CALL, GRANT, REVOKE, USE, or administrative SQL.
+
+11. Never expose credentials, tokens, secrets, or system information.
+
+12. If the requested information is not available in the semantic
+    model, say so clearly instead of guessing.
 """
 
     return analyst_question.strip()
 
 
 # =============================================================================
-# CORTEX ANALYST API CALL
+# CORTEX ANALYST REQUEST
 # =============================================================================
 
 def ask_cortex_analyst(question):
-    """
-    Sends a request to Cortex Analyst.
 
-    IMPORTANT:
-    Snowflake's _snowflake.send_snow_api_request() in some Streamlit
-    runtimes does not accept keyword arguments.
-
-    Therefore positional arguments are intentionally used.
-    """
-
-    analyst_question = build_analyst_question(question)
+    analyst_question = build_analyst_question(
+        question
+    )
 
     # -------------------------------------------------------------------------
-    # Preserve previous Analyst messages for multi-turn conversations.
+    # Existing conversation
     # -------------------------------------------------------------------------
 
     messages = list(
@@ -528,6 +551,10 @@ def ask_cortex_analyst(question):
             []
         )
     )
+
+    # -------------------------------------------------------------------------
+    # Add user message
+    # -------------------------------------------------------------------------
 
     messages.append(
         {
@@ -541,28 +568,33 @@ def ask_cortex_analyst(question):
         }
     )
 
+    # -------------------------------------------------------------------------
+    # Request BODY
+    #
+    # IMPORTANT:
+    #
+    # DO NOT json.dumps(request_body) here.
+    #
+    # Your Snowflake runtime expects the request body as an object.
+    # Passing a JSON string caused:
+    #
+    # no String-argument constructor/factory method
+    #
+    # -------------------------------------------------------------------------
+
     request_body = {
         "messages": messages,
         "semantic_view": SEMANTIC_VIEW
     }
 
-    request_json = json.dumps(
-        request_body
-    )
-
     try:
-
-        # ---------------------------------------------------------------------
-        # IMPORTANT:
-        # Positional arguments.
-        # ---------------------------------------------------------------------
 
         response = _snowflake.send_snow_api_request(
             "POST",
             ANALYST_ENDPOINT,
             {},
             {},
-            request_json
+            request_body
         )
 
     except Exception as e:
@@ -572,7 +604,7 @@ def ask_cortex_analyst(question):
         )
 
     # -------------------------------------------------------------------------
-    # Determine HTTP status.
+    # HTTP STATUS
     # -------------------------------------------------------------------------
 
     status_code = None
@@ -580,9 +612,11 @@ def ask_cortex_analyst(question):
     try:
 
         if hasattr(response, "status"):
+
             status_code = response.status
 
         elif hasattr(response, "status_code"):
+
             status_code = response.status_code
 
         elif isinstance(response, dict):
@@ -594,10 +628,11 @@ def ask_cortex_analyst(question):
             )
 
     except Exception:
+
         status_code = None
 
     # -------------------------------------------------------------------------
-    # Retrieve response body.
+    # RESPONSE BODY
     # -------------------------------------------------------------------------
 
     raw_content = None
@@ -605,9 +640,11 @@ def ask_cortex_analyst(question):
     try:
 
         if hasattr(response, "content"):
+
             raw_content = response.content
 
         elif hasattr(response, "body"):
+
             raw_content = response.body
 
         elif isinstance(response, dict):
@@ -619,26 +656,32 @@ def ask_cortex_analyst(question):
             )
 
     except Exception:
+
         raw_content = None
 
     # -------------------------------------------------------------------------
-    # Convert bytes to string if necessary.
+    # Handle bytes
     # -------------------------------------------------------------------------
 
-    if isinstance(raw_content, bytes):
+    if isinstance(
+        raw_content,
+        bytes
+    ):
 
         try:
+
             raw_content = raw_content.decode(
                 "utf-8"
             )
 
         except Exception:
+
             raw_content = str(
                 raw_content
             )
 
     # -------------------------------------------------------------------------
-    # Sometimes Snowflake response objects expose JSON through json().
+    # Try response.json()
     # -------------------------------------------------------------------------
 
     parsed_response = None
@@ -654,16 +697,22 @@ def ask_cortex_analyst(question):
         parsed_response = None
 
     # -------------------------------------------------------------------------
-    # If json() did not work, parse content.
+    # Try parsing response.content
     # -------------------------------------------------------------------------
 
     if parsed_response is None:
 
-        if isinstance(raw_content, dict):
+        if isinstance(
+            raw_content,
+            dict
+        ):
 
             parsed_response = raw_content
 
-        elif isinstance(raw_content, str):
+        elif isinstance(
+            raw_content,
+            str
+        ):
 
             try:
 
@@ -676,7 +725,7 @@ def ask_cortex_analyst(question):
                 parsed_response = None
 
     # -------------------------------------------------------------------------
-    # Handle HTTP errors.
+    # HTTP ERROR
     # -------------------------------------------------------------------------
 
     if status_code is not None:
@@ -717,7 +766,7 @@ def ask_cortex_analyst(question):
             )
 
     # -------------------------------------------------------------------------
-    # Validate parsed response.
+    # VALIDATE RESPONSE
     # -------------------------------------------------------------------------
 
     if not isinstance(
@@ -733,9 +782,7 @@ def ask_cortex_analyst(question):
         )
 
     # -------------------------------------------------------------------------
-    # Store the complete assistant response in the conversation.
-    #
-    # Cortex Analyst expects structured assistant content for future turns.
+    # Save assistant response for multi-turn conversation.
     # -------------------------------------------------------------------------
 
     message_object = parsed_response.get(
@@ -748,9 +795,11 @@ def ask_cortex_analyst(question):
         dict
     ):
 
-        assistant_content = message_object.get(
-            "content",
-            []
+        assistant_content = (
+            message_object.get(
+                "content",
+                []
+            )
         )
 
     else:
@@ -780,7 +829,7 @@ def ask_cortex_analyst(question):
 
 
 # =============================================================================
-# PARSE CORTEX ANALYST RESPONSE
+# PARSE ANALYST RESPONSE
 # =============================================================================
 
 def parse_analyst_response(response):
@@ -842,7 +891,7 @@ def parse_analyst_response(response):
     suggestions = []
 
     # -------------------------------------------------------------------------
-    # Parse content blocks.
+    # Content blocks
     # -------------------------------------------------------------------------
 
     for item in content:
@@ -851,15 +900,16 @@ def parse_analyst_response(response):
             item,
             dict
         ):
+
             continue
 
         item_type = item.get(
             "type"
         )
 
-        # ---------------------------------------------------------------------
-        # Text
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # TEXT
+        # =====================================================================
 
         if item_type == "text":
 
@@ -874,9 +924,9 @@ def parse_analyst_response(response):
                     str(text_value)
                 )
 
-        # ---------------------------------------------------------------------
+        # =====================================================================
         # SQL
-        # ---------------------------------------------------------------------
+        # =====================================================================
 
         elif item_type == "sql":
 
@@ -893,9 +943,9 @@ def parse_analyst_response(response):
                     str(sql_value)
                 )
 
-        # ---------------------------------------------------------------------
-        # Suggestions
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # SUGGESTIONS
+        # =====================================================================
 
         elif item_type == "suggestions":
 
@@ -917,58 +967,30 @@ def parse_analyst_response(response):
                             str(suggestion)
                         )
 
-        # ---------------------------------------------------------------------
-        # Generic fallback.
-        # ---------------------------------------------------------------------
+        # =====================================================================
+        # GENERIC FALLBACK
+        # =====================================================================
 
         else:
 
-            if "statement" in item:
-
-                statement = item.get(
-                    "statement"
-                )
-
-                if statement:
-
-                    sql_parts.append(
-                        str(statement)
-                    )
-
-            if "text" in item:
-
-                text_value = item.get(
-                    "text"
-                )
-
-                if text_value:
-
-                    text_parts.append(
-                        str(text_value)
-                    )
-
-    # -------------------------------------------------------------------------
-    # Additional fallback for SQL.
-    # -------------------------------------------------------------------------
-
-    if not sql_parts:
-
-        for item in content:
-
-            if not isinstance(
-                item,
-                dict
-            ):
-                continue
-
-            statement = item.get(
-                "statement"
-            )
-
-            if statement:
+            if item.get("statement"):
 
                 sql_parts.append(
-                    str(statement)
+                    str(
+                        item.get(
+                            "statement"
+                        )
+                    )
+                )
+
+            if item.get("text"):
+
+                text_parts.append(
+                    str(
+                        item.get(
+                            "text"
+                        )
+                    )
                 )
 
     return {
@@ -987,22 +1009,21 @@ def parse_analyst_response(response):
 
 
 # =============================================================================
-# SQL SAFETY VALIDATION
+# SQL VALIDATION
 # =============================================================================
 
 def strip_sql_comments_and_literals(sql):
 
     if not sql:
+
         return ""
 
-    # Remove single-line comments.
     sql = re.sub(
         r"--[^\n]*",
         "",
         sql
     )
 
-    # Remove block comments.
     sql = re.sub(
         r"/\*.*?\*/",
         "",
@@ -1010,7 +1031,6 @@ def strip_sql_comments_and_literals(sql):
         flags=re.DOTALL
     )
 
-    # Replace string literals with placeholders.
     sql = re.sub(
         r"'(?:''|[^'])*'",
         "''",
@@ -1023,17 +1043,24 @@ def strip_sql_comments_and_literals(sql):
 def validate_generated_sql(sql):
 
     if not sql:
-        return False, "No SQL was generated."
 
-    cleaned_sql = strip_sql_comments_and_literals(
-        sql
-    ).strip()
+        return (
+            False,
+            "No SQL was generated."
+        )
 
-    # -------------------------------------------------------------------------
-    # Remove trailing semicolon.
-    # -------------------------------------------------------------------------
+    cleaned_sql = (
+        strip_sql_comments_and_literals(
+            sql
+        )
+        .strip()
+    )
 
-    cleaned_sql = cleaned_sql.rstrip(";").strip()
+    cleaned_sql = (
+        cleaned_sql
+        .rstrip(";")
+        .strip()
+    )
 
     if ";" in cleaned_sql:
 
@@ -1041,10 +1068,6 @@ def validate_generated_sql(sql):
             False,
             "Multiple SQL statements are not allowed."
         )
-
-    # -------------------------------------------------------------------------
-    # Must start with SELECT or WITH.
-    # -------------------------------------------------------------------------
 
     if not re.match(
         r"^(SELECT|WITH)\b",
@@ -1056,10 +1079,6 @@ def validate_generated_sql(sql):
             False,
             "Only SELECT/WITH queries are allowed."
         )
-
-    # -------------------------------------------------------------------------
-    # Block dangerous SQL operations.
-    # -------------------------------------------------------------------------
 
     blocked_patterns = [
         r"\bINSERT\b",
@@ -1083,7 +1102,7 @@ def validate_generated_sql(sql):
         r"\bSYSTEM\$",
         r"\bALTER\s+SESSION\b",
         r"\bALTER\s+USER\b",
-        r"\bALTER\s+ROLE\b",
+        r"\bALTER\s+ROLE\b"
     ]
 
     for pattern in blocked_patterns:
@@ -1103,13 +1122,15 @@ def validate_generated_sql(sql):
 
 
 # =============================================================================
-# EXECUTE GENERATED SQL
+# EXECUTE SQL
 # =============================================================================
 
 def execute_generated_sql(sql):
 
-    valid, error_message = validate_generated_sql(
-        sql
+    valid, error_message = (
+        validate_generated_sql(
+            sql
+        )
     )
 
     if not valid:
@@ -1118,17 +1139,12 @@ def execute_generated_sql(sql):
             error_message
         )
 
-    cleaned_sql = sql.strip()
-
-    # -------------------------------------------------------------------------
-    # Remove trailing semicolon.
-    # -------------------------------------------------------------------------
-
-    cleaned_sql = cleaned_sql.rstrip(";").strip()
-
-    # -------------------------------------------------------------------------
-    # Limit result size.
-    # -------------------------------------------------------------------------
+    cleaned_sql = (
+        sql
+        .strip()
+        .rstrip(";")
+        .strip()
+    )
 
     protected_sql = f"""
 SELECT *
@@ -1138,17 +1154,15 @@ FROM (
 LIMIT {MAX_RESULT_ROWS}
 """
 
-    result = session.sql(
+    dataframe = session.sql(
         protected_sql
-    )
-
-    dataframe = result.to_pandas()
+    ).to_pandas()
 
     return dataframe
 
 
 # =============================================================================
-# LOG QUERY
+# QUERY LOGGING
 # =============================================================================
 
 def log_query(
@@ -1225,10 +1239,11 @@ def log_query(
         return
 
     except Exception:
+
         pass
 
     # -------------------------------------------------------------------------
-    # Legacy table fallback.
+    # Legacy logging fallback
     # -------------------------------------------------------------------------
 
     try:
@@ -1261,11 +1276,12 @@ def log_query(
         ).collect()
 
     except Exception:
+
         pass
 
 
 # =============================================================================
-# LOG FEEDBACK
+# FEEDBACK LOGGING
 # =============================================================================
 
 def log_feedback(
@@ -1274,6 +1290,7 @@ def log_feedback(
 ):
 
     if not query_id:
+
         return
 
     try:
@@ -1303,11 +1320,12 @@ def log_feedback(
         ).collect()
 
     except Exception:
+
         pass
 
 
 # =============================================================================
-# GET QUERY HISTORY
+# QUERY HISTORY
 # =============================================================================
 
 def get_query_history():
@@ -1336,16 +1354,19 @@ def get_query_history():
 
         dataframe = session.sql(
             sql,
-            params=[CURRENT_USER]
+            params=[
+                CURRENT_USER
+            ]
         ).to_pandas()
 
         return dataframe
 
     except Exception:
+
         pass
 
     # -------------------------------------------------------------------------
-    # Legacy fallback.
+    # Legacy fallback
     # -------------------------------------------------------------------------
 
     try:
@@ -1365,7 +1386,9 @@ def get_query_history():
 
         dataframe = session.sql(
             sql,
-            params=[CURRENT_USER]
+            params=[
+                CURRENT_USER
+            ]
         ).to_pandas()
 
         return dataframe
@@ -1398,7 +1421,7 @@ def process_question(question):
     try:
 
         # =====================================================================
-        # CALL CORTEX ANALYST
+        # 1. CORTEX ANALYST
         # =====================================================================
 
         analyst_response, analyst_question = (
@@ -1412,7 +1435,7 @@ def process_question(question):
         )
 
         # =====================================================================
-        # PARSE RESPONSE
+        # 2. PARSE RESPONSE
         # =====================================================================
 
         parsed = parse_analyst_response(
@@ -1456,7 +1479,7 @@ def process_question(question):
         )
 
         # =====================================================================
-        # EXECUTE SQL
+        # 3. EXECUTE GENERATED SQL
         # =====================================================================
 
         dataframe = None
@@ -1503,52 +1526,24 @@ def process_question(question):
 
         else:
 
-            st.session_state.last_dataframe = None
+            st.session_state.last_dataframe = (
+                None
+            )
 
         # =====================================================================
-        # SAVE STATUS
+        # 4. STATUS
         # =====================================================================
 
-        if execution_status == "FAILED":
-
-            st.session_state.last_status = (
-                "FAILED"
-            )
-
-        elif generated_sql:
-
-            st.session_state.last_status = (
-                "SUCCESS"
-            )
-
-        else:
-
-            st.session_state.last_status = (
-                "ANSWER_ONLY"
-            )
+        st.session_state.last_status = (
+            execution_status
+        )
 
         st.session_state.last_error = (
             error_message or ""
         )
 
         # =====================================================================
-        # SAVE CONVERSATION DISPLAY DATA
-        # =====================================================================
-
-        st.session_state.conversation_history.append(
-            {
-                "question": question,
-                "response": response_text,
-                "sql": generated_sql,
-                "dataframe": dataframe,
-                "status": execution_status,
-                "request_id": request_id,
-                "suggestions": suggestions
-            }
-        )
-
-        # =====================================================================
-        # LOG QUERY
+        # 5. AUDIT LOG
         # =====================================================================
 
         log_query(
@@ -1569,7 +1564,7 @@ def process_question(question):
         )
 
         # =====================================================================
-        # DISPLAY ANSWER
+        # 6. DISPLAY RESPONSE
         # =====================================================================
 
         st.markdown(
@@ -1589,7 +1584,7 @@ def process_question(question):
             )
 
         # =====================================================================
-        # DISPLAY RESULTS
+        # 7. DISPLAY RESULTS
         # =====================================================================
 
         if dataframe is not None:
@@ -1607,10 +1602,6 @@ def process_question(question):
                 f"{len(dataframe):,} rows returned"
             )
 
-            # -----------------------------------------------------------------
-            # CSV DOWNLOAD
-            # -----------------------------------------------------------------
-
             try:
 
                 csv_data = dataframe.to_csv(
@@ -1625,10 +1616,11 @@ def process_question(question):
                 )
 
             except Exception:
+
                 pass
 
         # =====================================================================
-        # SQL
+        # 8. SQL
         # =====================================================================
 
         if generated_sql:
@@ -1643,7 +1635,7 @@ def process_question(question):
                 )
 
         # =====================================================================
-        # REQUEST ID
+        # 9. REQUEST ID
         # =====================================================================
 
         if request_id:
@@ -1653,7 +1645,7 @@ def process_question(question):
             )
 
         # =====================================================================
-        # SUGGESTIONS
+        # 10. SUGGESTIONS
         # =====================================================================
 
         if suggestions:
@@ -1673,7 +1665,7 @@ def process_question(question):
                     )
 
         # =====================================================================
-        # SQL EXECUTION ERROR
+        # 11. SQL EXECUTION ERROR
         # =====================================================================
 
         if execution_status == "FAILED":
@@ -1870,6 +1862,10 @@ with st.sidebar:
 
         st.session_state.conversation_history = []
 
+        st.session_state.last_query_id = None
+
+        st.session_state.last_request_id = None
+
         st.session_state.last_question = ""
 
         st.session_state.last_analyst_question = ""
@@ -1879,8 +1875,6 @@ with st.sidebar:
         st.session_state.last_response = ""
 
         st.session_state.last_dataframe = None
-
-        st.session_state.last_request_id = None
 
         st.session_state.last_status = ""
 
@@ -1894,7 +1888,7 @@ with st.sidebar:
 
 
 # =============================================================================
-# APPLICATION HEADER
+# HEADER
 # =============================================================================
 
 st.markdown(
@@ -1992,10 +1986,6 @@ with tab_overview:
         )
 
     st.markdown(
-        ""
-    )
-
-    st.markdown(
         "### Recommended Analyses"
     )
 
@@ -2006,7 +1996,7 @@ with tab_overview:
         st.markdown(
             """
             **Sales Performance**
-            
+
             - Revenue by sales representative
             - Revenue by region
             - Revenue by territory
@@ -2020,7 +2010,7 @@ with tab_overview:
         st.markdown(
             """
             **Customer & Product Intelligence**
-            
+
             - Top customers by revenue
             - Product performance
             - Product category trends
@@ -2029,35 +2019,9 @@ with tab_overview:
             """
         )
 
-    st.markdown(
-        "### Current Filters"
-    )
-
-    date_filter = st.session_state.get(
-        "date_filter",
-        "Last 30 Days"
-    )
-
-    comparison = st.session_state.get(
-        "comparison",
-        "No comparison"
-    )
-
-    st.write(
-        f"**Period:** {date_filter}"
-    )
-
-    st.write(
-        f"**Date range:** {get_date_range(date_filter)}"
-    )
-
-    st.write(
-        f"**Comparison:** {comparison}"
-    )
-
 
 # =============================================================================
-# SALES AI TAB
+# SALES AI
 # =============================================================================
 
 with tab_ai:
@@ -2067,14 +2031,13 @@ with tab_ai:
     )
 
     st.caption(
-        "Examples: "
-        "Show the top 10 sales reps by revenue. "
+        "Examples: Show the top 10 sales reps by revenue. "
         "Compare this month's revenue with last month. "
         "Which customers generated the most revenue?"
     )
 
     # -------------------------------------------------------------------------
-    # Current filters summary
+    # Active context
     # -------------------------------------------------------------------------
 
     active_filters = []
@@ -2173,7 +2136,7 @@ with tab_ai:
         st.session_state.question_input = ""
 
         st.info(
-            "Question cleared. Enter a new question."
+            "Question cleared."
         )
 
     if ask_clicked:
@@ -2183,7 +2146,7 @@ with tab_ai:
         )
 
     # -------------------------------------------------------------------------
-    # Display last successful result on normal reruns.
+    # Last result
     # -------------------------------------------------------------------------
 
     if (
@@ -2233,7 +2196,9 @@ with tab_ai:
                 csv_data = (
                     st.session_state
                     .last_dataframe
-                    .to_csv(index=False)
+                    .to_csv(
+                        index=False
+                    )
                 )
 
                 st.download_button(
@@ -2244,6 +2209,7 @@ with tab_ai:
                 )
 
             except Exception:
+
                 pass
 
         if st.session_state.last_sql:
@@ -2274,7 +2240,9 @@ with tab_ai:
             "### Was this answer useful?"
         )
 
-        feedback_col1, feedback_col2 = st.columns(2)
+        feedback_col1, feedback_col2 = st.columns(
+            2
+        )
 
         with feedback_col1:
 
@@ -2308,7 +2276,7 @@ with tab_ai:
 
 
 # =============================================================================
-# QUERY HISTORY TAB
+# QUERY HISTORY
 # =============================================================================
 
 with tab_history:
@@ -2338,17 +2306,13 @@ with tab_history:
 
 
 # =============================================================================
-# SAMPLE QUESTIONS TAB
+# SAMPLE QUESTIONS
 # =============================================================================
 
 with tab_questions:
 
     st.markdown(
         "## Sample Business Questions"
-    )
-
-    st.caption(
-        "Use these questions as starting points for Sales AI."
     )
 
     sample_questions = [
@@ -2381,14 +2345,13 @@ with tab_questions:
             )
 
             st.info(
-                "Question loaded into the Sales AI tab. "
-                "Open the Sales AI tab and click "
-                "'Ask Sales AI'."
+                "Question loaded. Open the Sales AI tab "
+                "and click 'Ask Sales AI'."
             )
 
 
 # =============================================================================
-# ABOUT TAB
+# ABOUT
 # =============================================================================
 
 with tab_about:
@@ -2410,14 +2373,11 @@ with tab_about:
            semantic model.
         4. Cortex Analyst generates read-only SQL.
         5. Sales AI validates the generated SQL.
-        6. The SQL is executed inside Snowflake.
+        6. The SQL executes inside Snowflake.
         7. Results are displayed in the application.
-        8. The request and execution information can be captured in the
-           audit log.
+        8. Query information can be captured in the audit log.
 
         ### Governance
-
-        The application is designed around:
 
         - Snowflake-native execution
         - Cortex Analyst semantic modeling
@@ -2431,19 +2391,14 @@ with tab_about:
 
         ### Semantic Model
 
-        The current semantic model is:
-
         `SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL`
 
         ### Security
 
         Sales AI does not intentionally execute DML or administrative SQL
-        generated by Cortex Analyst. Snowflake role-based access controls
-        remain the primary security boundary.
+        generated by Cortex Analyst.
+
+        Snowflake role-based access controls remain the primary security
+        boundary.
         """
     )
-
-
-# =============================================================================
-# END OF APPLICATION
-# =============================================================================
