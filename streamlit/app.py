@@ -1,56 +1,58 @@
-"""
-===============================================================================
-SALES AI INTELLIGENCE APPLICATION
-===============================================================================
+# =============================================================================
+# SALES AI - PRODUCTION STREAMLIT APPLICATION
+# =============================================================================
+#
+# Snowflake-native Streamlit + Cortex Analyst
+#
+# Compatible with Snowflake Streamlit runtimes that do NOT support:
+#   - st.chat_input()
+#   - st.chat_message()
+#
+# Main capabilities:
+#   - Cortex Analyst REST API
+#   - Multi-turn conversations
+#   - Business filters
+#   - Date presets
+#   - Sales role / answer style
+#   - Read-only SQL validation
+#   - Query execution
+#   - Result limiting
+#   - Query history
+#   - Feedback
+#   - CSV export
+#   - Follow-up analysis
+#   - Explain / Compare / Top Drivers
+#   - Execution metrics
+#
+# Semantic model:
+#   SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL
+#
+# =============================================================================
 
-Platform:
-    Streamlit in Snowflake
 
-AI:
-    Snowflake Cortex Analyst
-
-Semantic View:
-    SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL
-
-Purpose:
-    Production-oriented Sales Analytics and AI Assistant.
-
-Major Features:
-    - Executive overview
-    - Natural language Sales AI
-    - Multi-turn conversation
-    - Global business filters
-    - AI follow-up suggestions
-    - Explain / investigate functionality
-    - Generated SQL visibility
-    - Read-only SQL protection
-    - Query execution monitoring
-    - Query history
-    - Feedback collection
-    - CSV download
-    - Result size protection
-    - Production error handling
-    - Audit logging
-
-===============================================================================
-"""
+# =============================================================================
+# 1. IMPORTS
+# =============================================================================
 
 import streamlit as st
 import pandas as pd
 import json
-import _snowflake
+import re
 import time
+import uuid
+from datetime import date, datetime, timedelta
 
-from datetime import datetime, date, timedelta
+import _snowflake
+
 from snowflake.snowpark.context import get_active_session
 
 
 # =============================================================================
-# PAGE CONFIGURATION
+# 2. PAGE CONFIGURATION
 # =============================================================================
 
 st.set_page_config(
-    page_title="Sales Intelligence - Cortex Analyst",
+    page_title="Sales AI",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -58,31 +60,32 @@ st.set_page_config(
 
 
 # =============================================================================
-# CONSTANTS / CONFIGURATION
+# 3. APPLICATION CONSTANTS
 # =============================================================================
 
+APPLICATION_NAME = "Sales AI"
+
 SEMANTIC_VIEW = "SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL"
+
+SEMANTIC_MODEL_NAME = "SALES_SEMANTIC_MODEL"
 
 ANALYST_ENDPOINT = "/api/v2/cortex/analyst/message"
 
 MAX_RESULT_ROWS = 10000
 
-QUERY_HISTORY_LIMIT = 50
+QUERY_HISTORY_LIMIT = 100
 
-APPLICATION_NAME = "SALES_AI"
+AUDIT_TABLE = "SALES_DATA.PUBLIC.ANALYST_QUERY_AUDIT_LOG"
 
-SEMANTIC_MODEL_NAME = "SALES_SEMANTIC_MODEL"
+FEEDBACK_TABLE = "SALES_DATA.PUBLIC.ANALYST_QUERY_FEEDBACK"
 
-
-# =============================================================================
-# SNOWFLAKE SESSION
-# =============================================================================
-
-session = get_active_session()
+# Existing table from the original application.
+# Used as a fallback if the new audit table has not yet been created.
+LEGACY_LOG_TABLE = "SALES_DATA.PUBLIC.ANALYST_QUERY_LOG"
 
 
 # =============================================================================
-# CUSTOM CSS
+# 4. CUSTOM CSS
 # =============================================================================
 
 st.markdown(
@@ -90,56 +93,51 @@ st.markdown(
     <style>
 
     .main-title {
-        font-size: 2.2rem;
+        font-size: 2.0rem;
         font-weight: 700;
         margin-bottom: 0.2rem;
     }
 
     .sub-title {
         color: #666666;
-        margin-bottom: 1.5rem;
-    }
-
-    .response-box {
-        background: linear-gradient(
-            135deg,
-            #f0f7ff 0%,
-            #e8f4f8 100%
-        );
-
-        padding: 1.5rem;
-
-        border-radius: 0.75rem;
-
-        border-left: 4px solid #0066cc;
-
-        margin: 1rem 0;
-
         font-size: 1rem;
-
-        line-height: 1.6;
+        margin-bottom: 1rem;
     }
 
-    .insight-box {
-        background: #f8f9fa;
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 650;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
 
+    .answer-box {
+        padding: 1rem 1.2rem;
+        border-radius: 8px;
+        border: 1px solid #dddddd;
+        background-color: #fafafa;
+        margin-bottom: 1rem;
+    }
+
+    .filter-box {
+        padding: 0.75rem;
+        border-radius: 8px;
+        border: 1px solid #dddddd;
+        background-color: #fafafa;
+        margin-bottom: 1rem;
+    }
+
+    .metric-box {
         padding: 1rem;
-
-        border-radius: 0.5rem;
-
-        border-left: 4px solid #666666;
-
-        margin: 0.5rem 0;
+        border-radius: 8px;
+        border: 1px solid #dddddd;
+        background-color: #fafafa;
+        min-height: 110px;
     }
 
     .small-text {
-        font-size: 0.8rem;
-        color: #777777;
-    }
-
-    .metric-label {
-        font-size: 0.85rem;
         color: #666666;
+        font-size: 0.85rem;
     }
 
     </style>
@@ -149,11 +147,36 @@ st.markdown(
 
 
 # =============================================================================
-# SESSION STATE INITIALIZATION
+# 5. SNOWFLAKE SESSION
 # =============================================================================
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+session = get_active_session()
+
+
+# =============================================================================
+# 6. SESSION STATE INITIALIZATION
+# =============================================================================
+
+if "analyst_messages" not in st.session_state:
+    st.session_state.analyst_messages = []
+
+if "chat_turns" not in st.session_state:
+    st.session_state.chat_turns = []
+
+if "pending_question" not in st.session_state:
+    st.session_state.pending_question = None
+
+if "last_query_id" not in st.session_state:
+    st.session_state.last_query_id = None
+
+if "last_request_id" not in st.session_state:
+    st.session_state.last_request_id = None
+
+if "last_sql" not in st.session_state:
+    st.session_state.last_sql = None
+
+if "last_dataframe" not in st.session_state:
+    st.session_state.last_dataframe = None
 
 if "last_question" not in st.session_state:
     st.session_state.last_question = None
@@ -161,153 +184,254 @@ if "last_question" not in st.session_state:
 if "last_response" not in st.session_state:
     st.session_state.last_response = None
 
-if "last_sql" not in st.session_state:
-    st.session_state.last_sql = None
-
-if "last_request_id" not in st.session_state:
-    st.session_state.last_request_id = None
-
-if "last_result" not in st.session_state:
-    st.session_state.last_result = None
+if "last_execution_status" not in st.session_state:
+    st.session_state.last_execution_status = None
 
 if "last_execution_seconds" not in st.session_state:
     st.session_state.last_execution_seconds = None
 
-if "last_sql_success" not in st.session_state:
-    st.session_state.last_sql_success = False
-
 if "last_error" not in st.session_state:
     st.session_state.last_error = None
 
-if "suggestions" not in st.session_state:
-    st.session_state.suggestions = []
+if "last_suggestions" not in st.session_state:
+    st.session_state.last_suggestions = []
 
-if "conversation_started" not in st.session_state:
-    st.session_state.conversation_started = False
+if "current_user" not in st.session_state:
+    try:
+        current_user_df = session.sql(
+            "SELECT CURRENT_USER() AS USER_NAME"
+        ).to_pandas()
+
+        if not current_user_df.empty:
+            st.session_state.current_user = str(
+                current_user_df.iloc[0]["USER_NAME"]
+            )
+        else:
+            st.session_state.current_user = "UNKNOWN"
+
+    except Exception:
+        st.session_state.current_user = "UNKNOWN"
 
 
 # =============================================================================
-# UTILITY FUNCTIONS
+# 7. HELPER FUNCTIONS
 # =============================================================================
 
-def safe_string(value):
-    """
-    Safely convert a value to string.
-    """
+def get_current_user():
+    """Return current Snowflake user."""
+    return st.session_state.get("current_user", "UNKNOWN")
 
-    if value is None:
+
+def clean_sql(sql_text):
+    """Clean generated SQL before execution."""
+
+    if sql_text is None:
         return ""
 
-    return str(value)
+    sql_text = str(sql_text).strip()
+
+    # Remove trailing semicolons.
+    sql_text = sql_text.rstrip(";").strip()
+
+    return sql_text
 
 
-def escape_sql_string(value):
+def remove_sql_comments(sql_text):
+    """Remove SQL comments for safer validation."""
+
+    sql_text = re.sub(
+        r"/\*.*?\*/",
+        " ",
+        sql_text,
+        flags=re.DOTALL
+    )
+
+    sql_text = re.sub(
+        r"--[^\n\r]*",
+        " ",
+        sql_text
+    )
+
+    return sql_text
+
+
+def remove_sql_string_literals(sql_text):
     """
-    Escape a string before embedding it in SQL.
+    Replace SQL string literals before keyword validation.
+
+    This reduces false positives such as:
+        SELECT 'DELETE'
     """
 
-    return safe_string(value).replace("'", "''")
+    return re.sub(
+        r"'(?:''|[^'])*'",
+        " ",
+        sql_text
+    )
 
 
-# =============================================================================
-# DATE FILTER
-# =============================================================================
-
-def get_date_range(selection):
+def validate_generated_sql(sql_text):
     """
-    Return start and end dates based on selected business timeframe.
+    Conservative read-only SQL validation.
+
+    Cortex Analyst should generate SELECT queries, but we still
+    validate the result before execution.
     """
+
+    sql_text = clean_sql(sql_text)
+
+    if not sql_text:
+        return False, "No SQL was generated."
+
+    if len(sql_text) > 100000:
+        return False, "Generated SQL is larger than the allowed limit."
+
+    # Only allow one statement.
+    # A semicolon inside a string has already been removed below.
+    validation_sql = remove_sql_comments(sql_text)
+    validation_sql = remove_sql_string_literals(validation_sql)
+
+    if ";" in validation_sql:
+        return False, "Multiple SQL statements are not allowed."
+
+    normalized = validation_sql.strip().upper()
+
+    if not (
+        normalized.startswith("SELECT ")
+        or normalized.startswith("SELECT\n")
+        or normalized == "SELECT"
+        or normalized.startswith("WITH ")
+        or normalized.startswith("WITH\n")
+    ):
+        return False, "Only SELECT/WITH queries are allowed."
+
+    blocked_keywords = [
+        "INSERT ",
+        "UPDATE ",
+        "DELETE ",
+        "MERGE ",
+        "TRUNCATE ",
+        "DROP ",
+        "ALTER ",
+        "CREATE ",
+        "REPLACE ",
+        "GRANT ",
+        "REVOKE ",
+        "COPY ",
+        "PUT ",
+        "GET ",
+        "REMOVE ",
+        "CALL ",
+        "EXECUTE ",
+        "EXEC ",
+        "BEGIN ",
+        "COMMIT ",
+        "ROLLBACK ",
+        "USE ",
+    ]
+
+    for keyword in blocked_keywords:
+        if keyword in validation_sql.upper():
+            return False, (
+                "Generated SQL contains a non-read-only operation: "
+                + keyword.strip()
+            )
+
+    return True, ""
+
+
+def build_date_range(filter_name):
+    """Return start/end dates for selected date filter."""
 
     today = date.today()
 
-    if selection == "Today":
+    if filter_name == "Today":
         return today, today
 
-    if selection == "Yesterday":
+    if filter_name == "Yesterday":
         yesterday = today - timedelta(days=1)
         return yesterday, yesterday
 
-    if selection == "Last 7 Days":
+    if filter_name == "Last 7 Days":
         return today - timedelta(days=6), today
 
-    if selection == "Last 30 Days":
+    if filter_name == "Last 30 Days":
         return today - timedelta(days=29), today
 
-    if selection == "Last 90 Days":
+    if filter_name == "Last 90 Days":
         return today - timedelta(days=89), today
 
-    if selection == "MTD":
+    if filter_name == "Month to Date":
         return today.replace(day=1), today
 
-    if selection == "QTD":
-        quarter_month = ((today.month - 1) // 3) * 3 + 1
-        return today.replace(
-            month=quarter_month,
-            day=1
-        ), today
+    if filter_name == "Quarter to Date":
+        quarter_start_month = ((today.month - 1) // 3) * 3 + 1
 
-    if selection == "YTD":
-        return today.replace(
-            month=1,
-            day=1
-        ), today
-
-    if selection == "Last Month":
-
-        first_day_current = today.replace(day=1)
-
-        last_day_previous = (
-            first_day_current - timedelta(days=1)
+        return (
+            today.replace(
+                month=quarter_start_month,
+                day=1
+            ),
+            today
         )
 
-        first_day_previous = last_day_previous.replace(day=1)
+    if filter_name == "Year to Date":
+        return today.replace(month=1, day=1), today
 
-        return first_day_previous, last_day_previous
+    if filter_name == "Last Month":
 
-    if selection == "Last Quarter":
+        first_day_current_month = today.replace(day=1)
 
-        current_quarter = ((today.month - 1) // 3)
+        last_day_previous_month = (
+            first_day_current_month - timedelta(days=1)
+        )
+
+        first_day_previous_month = (
+            last_day_previous_month.replace(day=1)
+        )
+
+        return (
+            first_day_previous_month,
+            last_day_previous_month
+        )
+
+    if filter_name == "Last Quarter":
+
+        current_quarter = (today.month - 1) // 3
 
         if current_quarter == 0:
-
-            year = today.year - 1
-            quarter = 3
-
+            previous_quarter_year = today.year - 1
+            previous_quarter = 3
         else:
+            previous_quarter_year = today.year
+            previous_quarter = current_quarter - 1
 
-            year = today.year
-            quarter = current_quarter - 1
-
-        start_month = quarter * 3 + 1
+        start_month = previous_quarter * 3 + 1
 
         start_date = date(
-            year,
+            previous_quarter_year,
             start_month,
             1
         )
 
         if start_month == 10:
-
             end_date = date(
-                year,
+                previous_quarter_year,
                 12,
                 31
             )
-
         else:
-
-            next_quarter = date(
-                year,
+            next_quarter_start = date(
+                previous_quarter_year,
                 start_month + 3,
                 1
             )
 
-            end_date = next_quarter - timedelta(days=1)
+            end_date = next_quarter_start - timedelta(days=1)
 
         return start_date, end_date
 
-    if selection == "Last Year":
-
+    if filter_name == "Last Year":
         return (
             date(today.year - 1, 1, 1),
             date(today.year - 1, 12, 31)
@@ -316,141 +440,163 @@ def get_date_range(selection):
     return None, None
 
 
-# =============================================================================
-# BUILD BUSINESS CONTEXT
-# =============================================================================
-
-def build_business_context(
-    date_filter,
-    custom_start,
-    custom_end,
-    comparison,
-    region,
-    territory,
-    sales_rep,
-    product,
-    channel
-):
+def build_business_context():
     """
-    Build business context that is added to the user's natural language
-    question.
+    Convert UI filters into natural-language context for Cortex Analyst.
 
-    IMPORTANT:
-        We intentionally do not generate physical SQL filters here because
-        the actual semantic-view dimension names may differ.
+    We intentionally do NOT construct SQL here.
 
-        Cortex Analyst interprets the business terms using the semantic model.
+    The semantic model remains responsible for selecting the
+    correct physical dimensions/measures.
     """
 
-    context = []
+    context_lines = []
 
-    # -------------------------------------------------------------------------
-    # Date
-    # -------------------------------------------------------------------------
+    business_role = st.session_state.get(
+        "business_role",
+        "Sales Executive"
+    )
 
-    if date_filter == "Custom":
+    answer_style = st.session_state.get(
+        "answer_style",
+        "Executive Summary"
+    )
 
-        context.append(
-            f"Analyze data from {custom_start} through {custom_end}."
-        )
+    date_filter = st.session_state.get(
+        "date_filter",
+        "Last 30 Days"
+    )
+
+    region = st.session_state.get("filter_region", "").strip()
+    territory = st.session_state.get("filter_territory", "").strip()
+    sales_rep = st.session_state.get("filter_sales_rep", "").strip()
+    customer = st.session_state.get("filter_customer", "").strip()
+    industry = st.session_state.get("filter_industry", "").strip()
+    product = st.session_state.get("filter_product", "").strip()
+    product_category = st.session_state.get(
+        "filter_product_category",
+        ""
+    ).strip()
+    channel = st.session_state.get("filter_channel", "").strip()
+
+    comparison = st.session_state.get(
+        "comparison_period",
+        "No Comparison"
+    )
+
+    context_lines.append(
+        f"Answer from the perspective of a {business_role}."
+    )
+
+    context_lines.append(
+        f"Preferred answer style: {answer_style}."
+    )
+
+    if date_filter != "Custom":
+
+        start_date, end_date = build_date_range(date_filter)
+
+        if start_date and end_date:
+            context_lines.append(
+                f"Primary date filter: {date_filter} "
+                f"({start_date.isoformat()} through "
+                f"{end_date.isoformat()})."
+            )
 
     else:
 
-        start_date, end_date = get_date_range(
-            date_filter
+        custom_start = st.session_state.get(
+            "custom_start_date"
         )
 
-        if start_date and end_date:
+        custom_end = st.session_state.get(
+            "custom_end_date"
+        )
 
-            context.append(
-                f"Analyze data from {start_date} through {end_date}."
+        if custom_start and custom_end:
+            context_lines.append(
+                "Primary date filter: Custom "
+                f"({custom_start.isoformat()} through "
+                f"{custom_end.isoformat()})."
             )
 
-    # -------------------------------------------------------------------------
-    # Comparison
-    # -------------------------------------------------------------------------
-
-    if comparison != "None":
-
-        context.append(
-            f"Compare the requested results against {comparison}."
+    if comparison != "No Comparison":
+        context_lines.append(
+            f"Comparison requested by application filter: {comparison}."
         )
 
-    # -------------------------------------------------------------------------
-    # Business dimensions
-    # -------------------------------------------------------------------------
+    filters = [
+        ("Region", region),
+        ("Territory", territory),
+        ("Sales Rep", sales_rep),
+        ("Customer", customer),
+        ("Industry", industry),
+        ("Product", product),
+        ("Product Category", product_category),
+        ("Channel", channel),
+    ]
 
-    if region != "All":
+    for label, value in filters:
+        if value and value.lower() not in ("all", "any"):
+            context_lines.append(
+                f"{label} filter: {value}."
+            )
 
-        context.append(
-            f"Restrict the analysis to region: {region}."
-        )
-
-    if territory != "All":
-
-        context.append(
-            f"Restrict the analysis to territory: {territory}."
-        )
-
-    if sales_rep != "All":
-
-        context.append(
-            f"Restrict the analysis to sales representative: {sales_rep}."
-        )
-
-    if product != "All":
-
-        context.append(
-            f"Restrict the analysis to product: {product}."
-        )
-
-    if channel != "All":
-
-        context.append(
-            f"Restrict the analysis to sales channel: {channel}."
-        )
-
-    if not context:
-
-        return ""
-
-    return (
-        "\n\nBUSINESS FILTER CONTEXT:\n"
-        + "\n".join(
-            f"- {item}" for item in context
-        )
+    context_lines.append(
+        "Apply these application filters unless the user's "
+        "question explicitly asks for a different value or period."
     )
 
+    return "\n".join(context_lines)
+
+
+def build_analyst_question(user_question):
+    """Combine user question and application context."""
+
+    business_context = build_business_context()
+
+    return f"""
+User's sales question:
+{user_question}
+
+Application business context:
+{business_context}
+
+Instructions:
+- Use the configured semantic model.
+- Answer the user's actual business question.
+- Respect the application filters unless explicitly overridden by the user.
+- Do not invent metrics, dimensions, customers, products, or values.
+- Prefer concise business explanations.
+- If the user asks for a comparison, clearly identify the comparison periods.
+""".strip()
+
 
 # =============================================================================
-# CORTEX ANALYST API
+# 8. CORTEX ANALYST API
 # =============================================================================
 
-def ask_cortex_analyst(
-    user_question,
-    conversation_messages=None
-):
+def ask_cortex_analyst(user_question):
     """
-    Send a question to Cortex Analyst.
+    Send question to Cortex Analyst using Snowflake's native REST API.
 
-    Supports multi-turn conversation by sending previous messages.
+    This avoids calling:
+        SNOWFLAKE.CORTEX.ANALYST(...)
     """
 
-    messages = []
+    analyst_question = build_analyst_question(user_question)
 
-    if conversation_messages:
+    # Start with previous Analyst conversation.
+    messages = list(st.session_state.analyst_messages)
 
-        messages.extend(
-            conversation_messages
-        )
-
+    # Add current user message using Cortex Analyst API format.
     messages.append(
         {
             "role": "user",
             "content": [
                 {
                     "type": "text",
-                    "text": user_question
+                    "text": analyst_question
                 }
             ]
         }
@@ -461,83 +607,159 @@ def ask_cortex_analyst(
         "semantic_view": SEMANTIC_VIEW
     }
 
-    response = _snowflake.send_snow_api_request(
-        "POST",
-        ANALYST_ENDPOINT,
-        {},
-        {},
-        request_body,
-        {}
-    )
+    api_start = time.perf_counter()
 
-    return response
+    try:
+
+        response = _snowflake.send_snow_api_request(
+            method="POST",
+            endpoint=ANALYST_ENDPOINT,
+            headers={
+                "Content-Type": "application/json"
+            },
+            body=request_body
+        )
+
+        api_seconds = time.perf_counter() - api_start
+
+        return response, api_seconds
+
+    except Exception as exc:
+
+        api_seconds = time.perf_counter() - api_start
+
+        return {
+            "status": 500,
+            "content": {
+                "error": str(exc)
+            }
+        }, api_seconds
 
 
 # =============================================================================
-# EXTRACT CORTEX ANALYST RESPONSE
+# 9. ANALYST RESPONSE PARSER
 # =============================================================================
 
 def extract_analyst_response(api_response):
     """
-    Extract text, SQL, suggestions and request ID.
+    Extract text, SQL, suggestions and raw assistant message
+    from Cortex Analyst response.
     """
 
-    status_code = api_response.get(
-        "status"
+    result = {
+        "success": False,
+        "text": "",
+        "sql": None,
+        "suggestions": [],
+        "assistant_message": None,
+        "request_id": None,
+        "error": None,
+    }
+
+    if not isinstance(api_response, dict):
+        result["error"] = "Invalid response returned by Cortex Analyst."
+        return result
+
+    status = api_response.get("status")
+
+    # Try several possible request ID locations.
+    result["request_id"] = (
+        api_response.get("request_id")
+        or api_response.get("requestId")
     )
 
-    if status_code != 200:
+    headers = api_response.get("headers")
 
-        error_content = api_response.get(
-            "content",
-            ""
+    if isinstance(headers, dict):
+
+        result["request_id"] = (
+            result["request_id"]
+            or headers.get("X-Snowflake-Request-ID")
+            or headers.get("x-snowflake-request-id")
+            or headers.get("X-Request-ID")
+            or headers.get("x-request-id")
         )
 
-        raise Exception(
-            "Cortex Analyst API failed. "
-            f"HTTP Status: {status_code}. "
-            f"Response: {error_content}"
+    content = api_response.get("content")
+
+    if status != 200:
+
+        if isinstance(content, dict):
+
+            error_value = (
+                content.get("message")
+                or content.get("error")
+                or content.get("detail")
+            )
+
+            if isinstance(error_value, dict):
+                error_value = json.dumps(error_value)
+
+        else:
+            error_value = str(content)
+
+        result["error"] = (
+            f"Cortex Analyst request failed "
+            f"(HTTP {status}): {error_value}"
         )
 
-    content = api_response.get(
-        "content"
-    )
+        return result
 
+    # API content may already be a dictionary.
     if isinstance(content, str):
 
         try:
-
-            content = json.loads(
-                content
-            )
+            content = json.loads(content)
 
         except Exception:
 
-            raise Exception(
-                "Cortex Analyst returned "
-                "an invalid JSON response."
+            result["error"] = (
+                "Cortex Analyst returned an unreadable response."
             )
+
+            return result
 
     if not isinstance(content, dict):
 
-        raise Exception(
-            "Unexpected Cortex Analyst response format."
+        result["error"] = (
+            "Cortex Analyst returned an unexpected response format."
         )
 
-    analyst_message = content.get(
-        "message",
-        {}
+        return result
+
+    # Sometimes request ID is present in the parsed body.
+    result["request_id"] = (
+        result["request_id"]
+        or content.get("request_id")
+        or content.get("requestId")
     )
 
-    message_content = analyst_message.get(
-        "content",
-        []
-    )
+    response_message = content.get("message")
 
-    analyst_text = None
+    if not isinstance(response_message, dict):
 
-    generated_sql = None
+        result["error"] = (
+            "Cortex Analyst response did not contain a message."
+        )
 
+        return result
+
+    message_content = response_message.get("content", [])
+
+    if not isinstance(message_content, list):
+
+        result["error"] = (
+            "Cortex Analyst response content was invalid."
+        )
+
+        return result
+
+    result["assistant_message"] = {
+        "role": "assistant",
+        "content": message_content
+    }
+
+    text_parts = []
     suggestions = []
 
     for item in message_content:
@@ -545,419 +767,1175 @@ def extract_analyst_response(api_response):
         if not isinstance(item, dict):
             continue
 
-        item_type = item.get(
-            "type"
-        )
+        item_type = item.get("type")
 
         if item_type == "text":
 
-            analyst_text = item.get(
-                "text"
-            )
+            text_value = item.get("text", "")
+
+            if text_value:
+                text_parts.append(str(text_value))
 
         elif item_type == "sql":
 
-            generated_sql = item.get(
-                "statement"
+            sql_value = (
+                item.get("statement")
+                or item.get("sql")
+                or item.get("query")
             )
+
+            if sql_value:
+                result["sql"] = str(sql_value)
 
         elif item_type == "suggestions":
 
-            suggestions = item.get(
-                "suggestions",
-                []
+            suggestion_values = (
+                item.get("suggestions")
+                or item.get("items")
+                or []
             )
 
-    request_id = (
-        api_response.get("request_id")
-        or api_response.get("requestId")
-        or content.get("request_id")
-        or content.get("requestId")
-    )
+            if isinstance(suggestion_values, list):
 
-    return {
-        "raw_response": content,
-        "text": analyst_text,
-        "sql": generated_sql,
-        "suggestions": suggestions,
-        "request_id": request_id
-    }
+                for suggestion in suggestion_values:
 
+                    if isinstance(suggestion, str):
+                        suggestions.append(suggestion)
 
-# =============================================================================
-# SQL SAFETY VALIDATION
-# =============================================================================
+                    elif isinstance(suggestion, dict):
 
-def validate_generated_sql(sql):
-    """
-    Validate generated SQL before execution.
+                        text_value = (
+                            suggestion.get("text")
+                            or suggestion.get("question")
+                            or suggestion.get("suggestion")
+                        )
 
-    This application is intended to be read-only.
+                        if text_value:
+                            suggestions.append(
+                                str(text_value)
+                            )
 
-    Returns:
-        (True, "")
-        or
-        (False, reason)
-    """
+    result["text"] = "\n\n".join(text_parts).strip()
 
-    if not sql:
+    result["suggestions"] = suggestions[:5]
 
-        return False, "No SQL was generated."
+    result["success"] = True
 
-    normalized = (
-        sql.strip()
-        .upper()
-    )
-
-    # -------------------------------------------------------------------------
-    # Only allow SELECT / WITH statements
-    # -------------------------------------------------------------------------
-
-    if not (
-        normalized.startswith("SELECT")
-        or normalized.startswith("WITH")
-    ):
-
-        return (
-            False,
-            "Only read-only SELECT queries are allowed."
-        )
-
-    # -------------------------------------------------------------------------
-    # Dangerous SQL keywords
-    # -------------------------------------------------------------------------
-
-    blocked_keywords = [
-        "INSERT ",
-        "UPDATE ",
-        "DELETE ",
-        "MERGE ",
-        "DROP ",
-        "ALTER ",
-        "TRUNCATE ",
-        "CREATE ",
-        "REPLACE ",
-        "GRANT ",
-        "REVOKE ",
-        "CALL ",
-        "COPY ",
-        "PUT ",
-        "REMOVE ",
-        "UNDROP ",
-        "EXECUTE "
-    ]
-
-    for keyword in blocked_keywords:
-
-        if keyword in normalized:
-
-            return (
-                False,
-                f"Blocked SQL operation detected: {keyword.strip()}"
-            )
-
-    return True, ""
+    return result
 
 
 # =============================================================================
-# EXECUTE GENERATED SQL
+# 10. SQL EXECUTION
 # =============================================================================
 
-def execute_generated_sql(sql):
+def execute_generated_sql(generated_sql):
     """
-    Execute generated SQL and return a Pandas DataFrame.
+    Execute Analyst-generated SQL safely.
 
-    Uses to_pandas() directly to avoid Snowpark Row -> dict conversion issues.
+    We wrap the generated query and apply a maximum result-row limit.
+
+    Example:
+
+        SELECT *
+        FROM (
+            <Cortex Analyst SQL>
+        ) AS ANALYST_RESULT
+        LIMIT 10000
     """
 
-    valid, validation_message = validate_generated_sql(
-        sql
+    generated_sql = clean_sql(generated_sql)
+
+    valid, validation_error = validate_generated_sql(
+        generated_sql
     )
 
     if not valid:
+        return {
+            "success": False,
+            "dataframe": None,
+            "seconds": 0,
+            "rows": 0,
+            "error": validation_error
+        }
 
-        raise Exception(
-            f"SQL security validation failed: "
-            f"{validation_message}"
+    wrapped_sql = f"""
+SELECT *
+FROM (
+    {generated_sql}
+) AS ANALYST_RESULT
+LIMIT {MAX_RESULT_ROWS}
+""".strip()
+
+    start_time = time.perf_counter()
+
+    try:
+
+        dataframe = session.sql(
+            wrapped_sql
+        ).to_pandas()
+
+        execution_seconds = (
+            time.perf_counter() - start_time
         )
 
-    start_time = time.time()
+        return {
+            "success": True,
+            "dataframe": dataframe,
+            "seconds": execution_seconds,
+            "rows": len(dataframe),
+            "error": None
+        }
 
-    df = session.sql(
-        sql
-    ).limit(
-        MAX_RESULT_ROWS
-    ).to_pandas()
+    except Exception as exc:
 
-    execution_seconds = (
-        time.time() - start_time
-    )
+        execution_seconds = (
+            time.perf_counter() - start_time
+        )
 
-    return df, execution_seconds
+        return {
+            "success": False,
+            "dataframe": None,
+            "seconds": execution_seconds,
+            "rows": 0,
+            "error": str(exc)
+        }
 
 
 # =============================================================================
-# AUDIT LOGGING
+# 11. QUERY AUDIT LOGGING
 # =============================================================================
 
 def log_query(
-    question,
-    response,
+    query_id,
+    user_question,
+    analyst_question,
+    response_text,
     generated_sql,
     request_id,
+    execution_status,
+    analyst_seconds,
     execution_seconds,
     rows_returned,
-    execution_status,
     error_message=None
 ):
     """
-    Write application activity to ANALYST_QUERY_LOG.
+    Write production audit record.
 
-    This function is intentionally defensive so logging failures never
-    prevent the business user from receiving an answer.
+    Preferred table:
+        ANALYST_QUERY_AUDIT_LOG
+
+    If it does not exist, fall back to the original:
+        ANALYST_QUERY_LOG
     """
+
+    current_user = get_current_user()
 
     try:
 
-        # ---------------------------------------------------------------------
-        # Check available columns dynamically.
-        #
-        # Existing ANALYST_QUERY_LOG may only contain the original columns.
-        # Therefore we use the original INSERT structure for compatibility.
-        # ---------------------------------------------------------------------
-
-        escaped_question = escape_sql_string(
-            question
-        )
-
-        escaped_response = escape_sql_string(
-            response or ""
-        )
-
-        insert_query = f"""
-            INSERT INTO ANALYST_QUERY_LOG
-            (
-                QUERY_TIMESTAMP,
-                USER_NAME,
-                USER_QUESTION,
-                RESPONSE,
-                SEMANTIC_MODEL_NAME
-            )
-            VALUES
-            (
-                CURRENT_TIMESTAMP(),
-                CURRENT_USER(),
-                '{escaped_question}',
-                '{escaped_response}',
-                '{escape_sql_string(SEMANTIC_MODEL_NAME)}'
-            )
-        """
+        insert_sql = f"""
+INSERT INTO {AUDIT_TABLE}
+(
+    QUERY_ID,
+    QUERY_TIMESTAMP,
+    USER_NAME,
+    REQUEST_ID,
+    USER_QUESTION,
+    ANALYST_QUESTION,
+    RESPONSE,
+    GENERATED_SQL,
+    EXECUTION_STATUS,
+    ANALYST_SECONDS,
+    EXECUTION_SECONDS,
+    ROWS_RETURNED,
+    ERROR_MESSAGE,
+    SEMANTIC_MODEL_NAME,
+    APPLICATION_NAME
+)
+VALUES
+(
+    ?, CURRENT_TIMESTAMP(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+)
+"""
 
         session.sql(
-            insert_query
+            insert_sql,
+            params=[
+                query_id,
+                current_user,
+                request_id,
+                user_question,
+                analyst_question,
+                response_text,
+                generated_sql,
+                execution_status,
+                analyst_seconds,
+                execution_seconds,
+                rows_returned,
+                error_message,
+                SEMANTIC_MODEL_NAME,
+                APPLICATION_NAME
+            ]
         ).collect()
 
-    except Exception as log_error:
+        return True
 
-        st.warning(
-            "⚠️ Query completed, but audit logging failed: "
-            f"{str(log_error)}"
-        )
+    except Exception:
+
+        # Backward compatibility with original logging table.
+        try:
+
+            legacy_insert = f"""
+INSERT INTO {LEGACY_LOG_TABLE}
+(
+    QUERY_TIMESTAMP,
+    USER_NAME,
+    USER_QUESTION,
+    RESPONSE,
+    SEMANTIC_MODEL_NAME
+)
+VALUES
+(
+    CURRENT_TIMESTAMP(),
+    ?,
+    ?,
+    ?,
+    ?
+)
+"""
+
+            legacy_response = response_text or ""
+
+            if error_message:
+                legacy_response += (
+                    "\n\nExecution Error: "
+                    + str(error_message)
+                )
+
+            session.sql(
+                legacy_insert,
+                params=[
+                    current_user,
+                    user_question,
+                    legacy_response,
+                    SEMANTIC_MODEL_NAME
+                ]
+            ).collect()
+
+            return True
+
+        except Exception:
+            return False
 
 
 # =============================================================================
-# FEEDBACK LOGGING
+# 12. FEEDBACK LOGGING
 # =============================================================================
 
 def log_feedback(
-    question,
+    query_id,
     feedback
 ):
-    """
-    Store user feedback.
+    """Store user feedback."""
 
-    Uses the existing log table only if compatible columns exist.
-    Failure is non-blocking.
-    """
+    current_user = get_current_user()
 
     try:
 
-        escaped_question = escape_sql_string(
-            question
-        )
-
-        feedback_query = f"""
-            INSERT INTO ANALYST_QUERY_LOG
-            (
-                QUERY_TIMESTAMP,
-                USER_NAME,
-                USER_QUESTION,
-                RESPONSE,
-                SEMANTIC_MODEL_NAME
-            )
-            VALUES
-            (
-                CURRENT_TIMESTAMP(),
-                CURRENT_USER(),
-                '{escaped_question}',
-                'USER_FEEDBACK: {escape_sql_string(feedback)}',
-                '{escape_sql_string(SEMANTIC_MODEL_NAME)}'
-            )
-        """
+        feedback_sql = f"""
+INSERT INTO {FEEDBACK_TABLE}
+(
+    QUERY_ID,
+    FEEDBACK_TIMESTAMP,
+    USER_NAME,
+    FEEDBACK
+)
+VALUES
+(
+    ?, CURRENT_TIMESTAMP(), ?, ?
+)
+"""
 
         session.sql(
-            feedback_query
+            feedback_sql,
+            params=[
+                query_id,
+                current_user,
+                feedback
+            ]
         ).collect()
+
+        return True
+
+    except Exception:
+
+        # Do not break the application if feedback table
+        # has not yet been created.
+        return False
+
+
+# =============================================================================
+# 13. RESULT VISUALIZATION
+# =============================================================================
+
+def display_result_visualization(dataframe):
+    """
+    Provide a lightweight automatic visualization when the result
+    contains a suitable date/category column and numeric measure.
+    """
+
+    if dataframe is None or dataframe.empty:
+        return
+
+    if len(dataframe.columns) < 2:
+        return
+
+    numeric_columns = list(
+        dataframe.select_dtypes(
+            include=["number"]
+        ).columns
+    )
+
+    if not numeric_columns:
+        return
+
+    date_columns = []
+
+    for column in dataframe.columns:
+
+        column_name = str(column).upper()
+
+        if (
+            "DATE" in column_name
+            or "DAY" in column_name
+            or "MONTH" in column_name
+            or "YEAR" in column_name
+            or "WEEK" in column_name
+            or "TIME" in column_name
+        ):
+            date_columns.append(column)
+
+    if not date_columns:
+        return
+
+    x_column = date_columns[0]
+    y_column = numeric_columns[0]
+
+    st.markdown("#### Quick Visualization")
+
+    try:
+
+        chart_df = dataframe[
+            [x_column, y_column]
+        ].copy()
+
+        chart_df[x_column] = pd.to_datetime(
+            chart_df[x_column],
+            errors="coerce"
+        )
+
+        chart_df = chart_df.dropna(
+            subset=[x_column]
+        )
+
+        if chart_df.empty:
+            return
+
+        chart_df = chart_df.sort_values(
+            by=x_column
+        )
+
+        chart_df = chart_df.set_index(
+            x_column
+        )
+
+        st.line_chart(
+            chart_df[[y_column]]
+        )
 
     except Exception:
         pass
 
 
 # =============================================================================
-# PAGE HEADER
+# 14. DISPLAY FILTER SUMMARY
+# =============================================================================
+
+def display_filter_summary():
+
+    date_filter = st.session_state.get(
+        "date_filter",
+        "Last 30 Days"
+    )
+
+    region = st.session_state.get(
+        "filter_region",
+        ""
+    ).strip()
+
+    territory = st.session_state.get(
+        "filter_territory",
+        ""
+    ).strip()
+
+    sales_rep = st.session_state.get(
+        "filter_sales_rep",
+        ""
+    ).strip()
+
+    customer = st.session_state.get(
+        "filter_customer",
+        ""
+    ).strip()
+
+    product = st.session_state.get(
+        "filter_product",
+        ""
+    ).strip()
+
+    channel = st.session_state.get(
+        "filter_channel",
+        ""
+    ).strip()
+
+    summary = [
+        f"Date: {date_filter}"
+    ]
+
+    if region:
+        summary.append(f"Region: {region}")
+
+    if territory:
+        summary.append(f"Territory: {territory}")
+
+    if sales_rep:
+        summary.append(f"Sales Rep: {sales_rep}")
+
+    if customer:
+        summary.append(f"Customer: {customer}")
+
+    if product:
+        summary.append(f"Product: {product}")
+
+    if channel:
+        summary.append(f"Channel: {channel}")
+
+    st.markdown(
+        '<div class="filter-box">'
+        "<strong>Active Business Context</strong><br>"
+        + " | ".join(summary)
+        + "</div>",
+        unsafe_allow_html=True
+    )
+
+
+# =============================================================================
+# 15. PROCESS A QUESTION
+# =============================================================================
+
+def process_question(user_question):
+    """
+    Complete question-processing pipeline:
+
+        User Question
+            ↓
+        Business Context
+            ↓
+        Cortex Analyst
+            ↓
+        Generated SQL
+            ↓
+        SQL Validation
+            ↓
+        Snowflake Execution
+            ↓
+        Result
+            ↓
+        Audit Logging
+    """
+
+    user_question = str(user_question).strip()
+
+    if not user_question:
+        return
+
+    query_id = str(uuid.uuid4())
+
+    analyst_question = build_analyst_question(
+        user_question
+    )
+
+    st.session_state.last_query_id = query_id
+    st.session_state.last_question = user_question
+    st.session_state.last_sql = None
+    st.session_state.last_dataframe = None
+    st.session_state.last_error = None
+    st.session_state.last_execution_status = "RUNNING"
+    st.session_state.last_suggestions = []
+
+    # -------------------------------------------------------------------------
+    # Show question immediately.
+    # -------------------------------------------------------------------------
+
+    st.markdown(
+        '<div class="section-title">Your Question</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(user_question)
+
+    # -------------------------------------------------------------------------
+    # Call Cortex Analyst.
+    # -------------------------------------------------------------------------
+
+    with st.spinner("Sales AI is analyzing your question..."):
+
+        api_response, analyst_seconds = ask_cortex_analyst(
+            user_question
+        )
+
+    parsed = extract_analyst_response(
+        api_response
+    )
+
+    request_id = parsed.get(
+        "request_id"
+    )
+
+    st.session_state.last_request_id = request_id
+
+    if not parsed["success"]:
+
+        error_message = parsed.get(
+            "error",
+            "Cortex Analyst request failed."
+        )
+
+        st.session_state.last_execution_status = "ANALYST_ERROR"
+        st.session_state.last_error = error_message
+
+        st.error(
+            "Sales AI could not process the question."
+        )
+
+        with st.expander("Technical Details"):
+
+            st.code(
+                error_message
+            )
+
+        log_query(
+            query_id=query_id,
+            user_question=user_question,
+            analyst_question=analyst_question,
+            response_text="",
+            generated_sql=None,
+            request_id=request_id,
+            execution_status="ANALYST_ERROR",
+            analyst_seconds=analyst_seconds,
+            execution_seconds=0,
+            rows_returned=0,
+            error_message=error_message
+        )
+
+        return
+
+    response_text = parsed.get(
+        "text",
+        ""
+    )
+
+    generated_sql = parsed.get(
+        "sql"
+    )
+
+    suggestions = parsed.get(
+        "suggestions",
+        []
+    )
+
+    st.session_state.last_response = response_text
+    st.session_state.last_sql = generated_sql
+    st.session_state.last_suggestions = suggestions
+
+    # -------------------------------------------------------------------------
+    # IMPORTANT:
+    #
+    # Preserve the actual Cortex Analyst assistant message structure.
+    # This allows future follow-up questions to remain valid.
+    # -------------------------------------------------------------------------
+
+    assistant_message = parsed.get(
+        "assistant_message"
+    )
+
+    if assistant_message:
+
+        st.session_state.analyst_messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": analyst_question
+                    }
+                ]
+            }
+        )
+
+        st.session_state.analyst_messages.append(
+            assistant_message
+        )
+
+    # -------------------------------------------------------------------------
+    # Display Analyst answer.
+    # -------------------------------------------------------------------------
+
+    st.markdown(
+        '<div class="section-title">Sales AI Answer</div>',
+        unsafe_allow_html=True
+    )
+
+    if response_text:
+
+        st.markdown(
+            '<div class="answer-box">'
+            + response_text
+            + "</div>",
+            unsafe_allow_html=True
+        )
+
+    else:
+
+        st.info(
+            "Cortex Analyst generated SQL for this question."
+        )
+
+    # -------------------------------------------------------------------------
+    # Execute generated SQL.
+    # -------------------------------------------------------------------------
+
+    execution_result = {
+        "success": False,
+        "dataframe": None,
+        "seconds": 0,
+        "rows": 0,
+        "error": None
+    }
+
+    if generated_sql:
+
+        valid_sql, validation_error = validate_generated_sql(
+            generated_sql
+        )
+
+        if not valid_sql:
+
+            execution_result["error"] = validation_error
+
+            st.warning(
+                "The generated query was not executed because "
+                "it did not pass the read-only safety check."
+            )
+
+            with st.expander("Technical Details"):
+
+                st.code(
+                    validation_error
+                )
+
+        else:
+
+            with st.spinner("Running analysis in Snowflake..."):
+
+                execution_result = execute_generated_sql(
+                    generated_sql
+                )
+
+            if execution_result["success"]:
+
+                dataframe = execution_result["dataframe"]
+
+                st.session_state.last_dataframe = dataframe
+                st.session_state.last_execution_status = "SUCCESS"
+                st.session_state.last_execution_seconds = (
+                    execution_result["seconds"]
+                )
+
+                if dataframe is not None:
+
+                    st.markdown(
+                        "#### Results"
+                    )
+
+                    st.dataframe(
+                        dataframe,
+                        use_container_width=True,
+                        height=420
+                    )
+
+                    display_result_visualization(
+                        dataframe
+                    )
+
+                    csv_data = dataframe.to_csv(
+                        index=False
+                    ).encode("utf-8")
+
+                    st.download_button(
+                        label="Download Results as CSV",
+                        data=csv_data,
+                        file_name=(
+                            "sales_ai_result_"
+                            + query_id[:8]
+                            + ".csv"
+                        ),
+                        mime="text/csv",
+                        use_container_width=False
+                    )
+
+            else:
+
+                st.session_state.last_execution_status = (
+                    "SQL_ERROR"
+                )
+
+                st.session_state.last_error = (
+                    execution_result["error"]
+                )
+
+                st.error(
+                    "Sales AI generated a query, but Snowflake "
+                    "could not execute it."
+                )
+
+                with st.expander("Technical Details"):
+
+                    st.code(
+                        execution_result["error"]
+                    )
+
+    else:
+
+        st.session_state.last_execution_status = (
+            "ANSWER_ONLY"
+        )
+
+    # -------------------------------------------------------------------------
+    # Technical details.
+    # -------------------------------------------------------------------------
+
+    with st.expander("Technical Details"):
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric(
+                "Analyst Time",
+                f"{analyst_seconds:.2f}s"
+            )
+
+        with col2:
+            st.metric(
+                "SQL Time",
+                f"{execution_result['seconds']:.2f}s"
+            )
+
+        with col3:
+            st.metric(
+                "Rows",
+                f"{execution_result['rows']:,}"
+            )
+
+        with col4:
+            st.metric(
+                "Status",
+                st.session_state.last_execution_status
+            )
+
+        if request_id:
+            st.caption(
+                f"Request ID: {request_id}"
+            )
+
+        if generated_sql:
+
+            st.markdown(
+                "#### Generated SQL"
+            )
+
+            st.code(
+                generated_sql,
+                language="sql"
+            )
+
+    # -------------------------------------------------------------------------
+    # Audit logging.
+    # -------------------------------------------------------------------------
+
+    log_query(
+        query_id=query_id,
+        user_question=user_question,
+        analyst_question=analyst_question,
+        response_text=response_text,
+        generated_sql=generated_sql,
+        request_id=request_id,
+        execution_status=st.session_state.last_execution_status,
+        analyst_seconds=analyst_seconds,
+        execution_seconds=execution_result["seconds"],
+        rows_returned=execution_result["rows"],
+        error_message=execution_result["error"]
+    )
+
+    # -------------------------------------------------------------------------
+    # Feedback.
+    # -------------------------------------------------------------------------
+
+    st.markdown(
+        "#### Was this analysis useful?"
+    )
+
+    feedback_col1, feedback_col2 = st.columns(2)
+
+    with feedback_col1:
+
+        if st.button(
+            "👍 Helpful",
+            key=f"helpful_{query_id}",
+            use_container_width=True
+        ):
+
+            if log_feedback(
+                query_id,
+                "HELPFUL"
+            ):
+                st.success(
+                    "Thanks for your feedback."
+                )
+            else:
+                st.info(
+                    "Feedback could not be recorded."
+                )
+
+    with feedback_col2:
+
+        if st.button(
+            "👎 Not Helpful",
+            key=f"not_helpful_{query_id}",
+            use_container_width=True
+        ):
+
+            if log_feedback(
+                query_id,
+                "NOT_HELPFUL"
+            ):
+                st.success(
+                    "Thanks. Your feedback was recorded."
+                )
+            else:
+                st.info(
+                    "Feedback could not be recorded."
+                )
+
+    # -------------------------------------------------------------------------
+    # Suggestions.
+    # -------------------------------------------------------------------------
+
+    if suggestions:
+
+        st.markdown(
+            "#### Suggested Follow-ups"
+        )
+
+        for index, suggestion in enumerate(
+            suggestions
+        ):
+
+            if st.button(
+                suggestion,
+                key=f"suggestion_{query_id}_{index}",
+                use_container_width=True
+            ):
+
+                st.session_state.pending_question = (
+                    suggestion
+                )
+
+                st.rerun()
+
+
+# =============================================================================
+# 16. APPLICATION HEADER
 # =============================================================================
 
 st.markdown(
-    '<div class="main-title">📊 Sales Intelligence</div>',
+    '<div class="main-title">📊 Sales AI</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     '<div class="sub-title">'
-    'AI-powered sales analytics using Snowflake Cortex Analyst'
-    '</div>',
+    "Business-friendly sales analytics powered by Snowflake "
+    "and Cortex Analyst"
+    "</div>",
     unsafe_allow_html=True
 )
 
 
 # =============================================================================
-# SIDEBAR
+# 17. SIDEBAR - BUSINESS CONTROLS
 # =============================================================================
 
 with st.sidebar:
 
-    st.header("🎯 Analysis Filters")
+    st.markdown(
+        "## Business Controls"
+    )
 
     st.caption(
-        "These filters are applied as business context to Cortex Analyst."
+        f"User: {get_current_user()}"
+    )
+
+    st.markdown(
+        "---"
     )
 
     # -------------------------------------------------------------------------
-    # Date
+    # Business Role
     # -------------------------------------------------------------------------
+
+    business_role = st.selectbox(
+        "Business Role",
+        [
+            "Sales Executive",
+            "Sales Manager",
+            "Sales Representative",
+            "Sales Leadership",
+            "Sales Analyst",
+            "Data / AI Developer"
+        ],
+        key="business_role"
+    )
+
+    # -------------------------------------------------------------------------
+    # Answer Style
+    # -------------------------------------------------------------------------
+
+    answer_style = st.selectbox(
+        "Answer Style",
+        [
+            "Executive Summary",
+            "Detailed Analysis",
+            "Data Focused",
+            "Trend Analysis",
+            "Action Oriented"
+        ],
+        key="answer_style"
+    )
+
+    st.markdown(
+        "---"
+    )
+
+    # -------------------------------------------------------------------------
+    # Date Filter
+    # -------------------------------------------------------------------------
+
+    date_options = [
+        "Today",
+        "Yesterday",
+        "Last 7 Days",
+        "Last 30 Days",
+        "Last 90 Days",
+        "Month to Date",
+        "Quarter to Date",
+        "Year to Date",
+        "Last Month",
+        "Last Quarter",
+        "Last Year",
+        "Custom"
+    ]
+
+    if "date_filter" not in st.session_state:
+        st.session_state.date_filter = "Last 30 Days"
 
     date_filter = st.selectbox(
         "Date Range",
-        [
-            "Today",
-            "Yesterday",
-            "Last 7 Days",
-            "Last 30 Days",
-            "Last 90 Days",
-            "MTD",
-            "QTD",
-            "YTD",
-            "Last Month",
-            "Last Quarter",
-            "Last Year",
-            "Custom"
-        ],
-        index=3
+        date_options,
+        key="date_filter"
     )
-
-    custom_start = None
-    custom_end = None
 
     if date_filter == "Custom":
 
-        custom_start = st.date_input(
-            "Start Date",
-            value=date.today() - timedelta(days=29)
-        )
-
-        custom_end = st.date_input(
-            "End Date",
-            value=date.today()
-        )
-
-        if custom_start > custom_end:
-
-            st.error(
-                "Start date cannot be after end date."
+        if "custom_start_date" not in st.session_state:
+            st.session_state.custom_start_date = (
+                date.today() - timedelta(days=29)
             )
 
+        if "custom_end_date" not in st.session_state:
+            st.session_state.custom_end_date = date.today()
+
+        st.date_input(
+            "Start Date",
+            key="custom_start_date"
+        )
+
+        st.date_input(
+            "End Date",
+            key="custom_end_date"
+        )
+
+        if (
+            st.session_state.custom_start_date
+            > st.session_state.custom_end_date
+        ):
+
+            st.error(
+                "Start Date cannot be after End Date."
+            )
 
     # -------------------------------------------------------------------------
     # Comparison
     # -------------------------------------------------------------------------
 
-    comparison = st.selectbox(
-        "Compare Against",
+    st.selectbox(
+        "Comparison",
         [
-            "None",
+            "No Comparison",
             "Previous Period",
-            "Previous Year",
-            "Same Period Last Year"
-        ]
+            "Previous Month",
+            "Previous Quarter",
+            "Previous Year"
+        ],
+        key="comparison_period"
     )
 
-
-    st.divider()
-
+    st.markdown(
+        "---"
+    )
 
     # -------------------------------------------------------------------------
-    # Business dimensions
-    #
-    # We intentionally use text inputs rather than querying unknown physical
-    # tables. Cortex Analyst resolves the business terminology.
+    # Sales Filters
     # -------------------------------------------------------------------------
 
-    region = st.text_input(
+    st.markdown(
+        "### Sales Filters"
+    )
+
+    st.text_input(
         "Region",
-        value="All",
-        placeholder="e.g. Northeast"
+        placeholder="All regions",
+        key="filter_region"
     )
 
-    territory = st.text_input(
+    st.text_input(
         "Territory",
-        value="All",
-        placeholder="e.g. Texas"
+        placeholder="All territories",
+        key="filter_territory"
     )
 
-    sales_rep = st.text_input(
+    st.text_input(
         "Sales Rep",
-        value="All",
-        placeholder="e.g. John Smith"
+        placeholder="All sales reps",
+        key="filter_sales_rep"
     )
 
-    product = st.text_input(
+    st.text_input(
+        "Customer",
+        placeholder="All customers",
+        key="filter_customer"
+    )
+
+    st.text_input(
+        "Industry",
+        placeholder="All industries",
+        key="filter_industry"
+    )
+
+    st.text_input(
         "Product",
-        value="All",
-        placeholder="e.g. Product ABC"
+        placeholder="All products",
+        key="filter_product"
     )
 
-    channel = st.text_input(
+    st.text_input(
+        "Product Category",
+        placeholder="All product categories",
+        key="filter_product_category"
+    )
+
+    st.text_input(
         "Channel",
-        value="All",
-        placeholder="e.g. Online"
+        placeholder="All channels",
+        key="filter_channel"
     )
 
-
-    st.divider()
-
+    st.markdown(
+        "---"
+    )
 
     # -------------------------------------------------------------------------
-    # Conversation controls
+    # Reset
     # -------------------------------------------------------------------------
-
-    st.header("🤖 AI Controls")
 
     if st.button(
-        "🧹 Clear Conversation",
+        "Reset Filters",
         use_container_width=True
     ):
 
-        st.session_state.messages = []
+        st.session_state.business_role = (
+            "Sales Executive"
+        )
+
+        st.session_state.answer_style = (
+            "Executive Summary"
+        )
+
+        st.session_state.date_filter = (
+            "Last 30 Days"
+        )
+
+        st.session_state.comparison_period = (
+            "No Comparison"
+        )
+
+        st.session_state.custom_start_date = (
+            date.today() - timedelta(days=29)
+        )
+
+        st.session_state.custom_end_date = date.today()
+
+        for key in [
+            "filter_region",
+            "filter_territory",
+            "filter_sales_rep",
+            "filter_customer",
+            "filter_industry",
+            "filter_product",
+            "filter_product_category",
+            "filter_channel"
+        ]:
+            st.session_state[key] = ""
+
+        st.rerun()
+
+    st.markdown(
+        "---"
+    )
+
+    # -------------------------------------------------------------------------
+    # New Conversation
+    # -------------------------------------------------------------------------
+
+    if st.button(
+        "Start New Conversation",
+        use_container_width=True
+    ):
+
+        st.session_state.analyst_messages = []
+
+        st.session_state.chat_turns = []
+
+        st.session_state.pending_question = None
 
         st.session_state.last_question = None
 
@@ -965,1323 +1943,1174 @@ with st.sidebar:
 
         st.session_state.last_sql = None
 
-        st.session_state.last_request_id = None
+        st.session_state.last_dataframe = None
 
-        st.session_state.last_result = None
+        st.session_state.last_error = None
 
-        st.session_state.suggestions = []
-
-        st.session_state.conversation_started = False
+        st.session_state.last_suggestions = []
 
         st.rerun()
 
 
-    st.divider()
-
-    st.caption(
-        "Semantic View"
-    )
-
-    st.code(
-        SEMANTIC_VIEW,
-        language="text"
-    )
-
-    st.caption(
-        "Application: Sales Intelligence"
-    )
-
-
 # =============================================================================
-# MAIN TABS
+# 18. MAIN TABS
 # =============================================================================
 
 tab_overview, tab_ai, tab_history, tab_samples, tab_about = st.tabs(
     [
-        "🏠 Executive Overview",
-        "🤖 Sales AI",
-        "📈 Query History",
-        "📚 Sample Questions",
-        "ℹ️ About"
+        "Executive Overview",
+        "Sales AI",
+        "Query History",
+        "Sample Questions",
+        "About"
     ]
 )
 
 
 # =============================================================================
-# TAB 1 - EXECUTIVE OVERVIEW
+# 19. EXECUTIVE OVERVIEW
 # =============================================================================
 
 with tab_overview:
 
-    st.header("Executive Overview")
-
-    st.caption(
-        "Use Sales AI for detailed analysis and business explanations."
+    st.markdown(
+        "## Executive Overview"
     )
 
+    display_filter_summary()
+
+    st.info(
+        "Use Sales AI to generate live business analysis from "
+        "your governed sales semantic model."
+    )
 
     # -------------------------------------------------------------------------
-    # KPI cards
-    #
-    # We do not hard-code KPI SQL because the actual semantic model measures
-    # should determine the correct business definitions.
+    # KPI-style capability cards
     # -------------------------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
 
-        st.metric(
-            "Revenue",
-            "Ask AI"
+        st.markdown(
+            """
+            <div class="metric-box">
+            <strong>Revenue</strong><br>
+            Analyze revenue, growth, trends and performance.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
-
-        st.caption(
-            "Use Sales AI → total revenue"
-        )
-
 
     with col2:
 
-        st.metric(
-            "Orders",
-            "Ask AI"
+        st.markdown(
+            """
+            <div class="metric-box">
+            <strong>Sales Team</strong><br>
+            Understand rep and territory performance.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
-
-        st.caption(
-            "Use Sales AI → order count"
-        )
-
 
     with col3:
 
-        st.metric(
-            "Quota Attainment",
-            "Ask AI"
+        st.markdown(
+            """
+            <div class="metric-box">
+            <strong>Customers</strong><br>
+            Identify top customers, risks and opportunities.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
-
-        st.caption(
-            "Use Sales AI → quota attainment"
-        )
-
 
     with col4:
 
-        st.metric(
-            "Customers",
-            "Ask AI"
+        st.markdown(
+            """
+            <div class="metric-box">
+            <strong>Products</strong><br>
+            Analyze product and category performance.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-        st.caption(
-            "Use Sales AI → customer count"
-        )
+    st.markdown(
+        "### Recommended Business Analyses"
+    )
 
-
-    st.divider()
-
-
-    # -------------------------------------------------------------------------
-    # Business insight cards
-    # -------------------------------------------------------------------------
-
-    st.subheader("💡 Recommended Business Analysis")
-
-
-    insight_questions = [
-        (
-            "Revenue Performance",
-            "What is total revenue for the selected period and how does it "
-            "compare with the selected comparison period?"
-        ),
-
-        (
-            "Sales Performance",
-            "Which sales representatives are performing above and below quota?"
-        ),
-
-        (
-            "Regional Performance",
-            "Which regions are contributing most to revenue and which regions "
-            "are declining?"
-        ),
-
-        (
-            "Customer Risk",
-            "Which high-value customers are showing declining revenue or "
-            "potential churn risk?"
-        )
+    recommended_questions = [
+        "What was total revenue during the selected period?",
+        "Which regions are performing best?",
+        "Which sales reps have the highest revenue?",
+        "Which customers contributed the most revenue?",
+        "Which products are growing fastest?",
+        "How does the selected period compare with the previous period?",
+        "What are the biggest sales performance risks?",
+        "Where should the sales team focus next?"
     ]
 
+    for question in recommended_questions:
 
-    cols = st.columns(2)
+        st.markdown(
+            f"- {question}"
+        )
 
-    for index, item in enumerate(
-        insight_questions
-    ):
+    st.markdown(
+        "### How to Use"
+    )
 
-        title, question = item
-
-        with cols[index % 2]:
-
-            st.markdown(
-                f"""
-                <div class="insight-box">
-                    <strong>{title}</strong><br>
-                    {question}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-    st.info(
-        "💡 The Executive Overview intentionally does not duplicate business "
-        "logic already defined in your semantic model. Use the Sales AI tab "
-        "to query the governed metrics and dimensions."
+    st.markdown(
+        """
+        1. Set your business filters in the left panel.
+        2. Open **Sales AI**.
+        3. Ask a natural-language sales question.
+        4. Review the business answer.
+        5. Review the data results when available.
+        6. Use suggested follow-up questions for deeper analysis.
+        """
     )
 
 
 # =============================================================================
-# TAB 2 - SALES AI
+# 20. SALES AI
 # =============================================================================
 
 with tab_ai:
 
-    st.header("🤖 Sales AI Assistant")
-
-    st.caption(
-        "Ask questions about revenue, customers, products, quotas, "
-        "sales representatives, regions, channels and performance."
+    st.markdown(
+        "## Sales AI"
     )
 
+    display_filter_summary()
 
     # -------------------------------------------------------------------------
-    # Conversation history
+    # Quick Questions
     # -------------------------------------------------------------------------
 
-    for message in st.session_state.messages:
-
-        role = message.get(
-            "role"
-        )
-
-        content = message.get(
-            "content",
-            ""
-        )
-
-        if role == "user":
-
-            with st.chat_message("user"):
-
-                st.markdown(
-                    content
-                )
-
-        elif role == "assistant":
-
-            with st.chat_message("assistant"):
-
-                st.markdown(
-                    content
-                )
-
-
-    # -------------------------------------------------------------------------
-    # Question input
-    # -------------------------------------------------------------------------
-
-    user_question = st.chat_input(
-        "Ask a question about your sales data..."
+    st.markdown(
+        "### Quick Questions"
     )
 
+    quick_questions = [
+        "What was revenue during the selected period?",
+        "Show the top 10 sales reps by revenue.",
+        "Show the top 10 customers by revenue.",
+        "Which regions are performing best?",
+        "What are the biggest sales trends?"
+    ]
 
-    # -------------------------------------------------------------------------
-    # Suggested questions
-    # -------------------------------------------------------------------------
+    quick_columns = st.columns(
+        len(quick_questions)
+    )
 
-    if not user_question and not st.session_state.messages:
+    for index, question in enumerate(
+        quick_questions
+    ):
 
-        st.markdown("### Try asking")
+        with quick_columns[index]:
 
-        quick_questions = [
-            "What is total revenue this year?",
-            "Show the top 10 customers by revenue.",
-            "Which sales reps are exceeding quota?",
-            "Which regions have the highest revenue?",
-            "Show revenue trends over time.",
-            "Which products are driving revenue growth?",
-            "Which customers have declining revenue?"
-        ]
-
-        quick_cols = st.columns(2)
-
-        for index, question in enumerate(
-            quick_questions
-        ):
-
-            with quick_cols[index % 2]:
-
-                if st.button(
-                    question,
-                    key=f"quick_question_{index}",
-                    use_container_width=True
-                ):
-
-                    user_question = question
-
-
-    # -------------------------------------------------------------------------
-    # Process question
-    # -------------------------------------------------------------------------
-
-    if user_question:
-
-        # ---------------------------------------------------------------------
-        # Validate custom dates
-        # ---------------------------------------------------------------------
-
-        if date_filter == "Custom":
-
-            if (
-                custom_start is None
-                or custom_end is None
+            if st.button(
+                question,
+                key=f"quick_question_{index}",
+                use_container_width=True
             ):
 
-                st.error(
-                    "Please select both start and end dates."
+                st.session_state.pending_question = (
+                    question
                 )
 
-                st.stop()
+                st.rerun()
 
-            if custom_start > custom_end:
+    st.markdown(
+        "---"
+    )
 
-                st.error(
-                    "Start date cannot be after end date."
-                )
+    # -------------------------------------------------------------------------
+    # Question Input
+    #
+    # IMPORTANT:
+    # No st.chat_input()
+    # No st.chat_message()
+    # -------------------------------------------------------------------------
 
-                st.stop()
+    st.markdown(
+        "### Ask a Business Question"
+    )
 
+    typed_question = st.text_area(
+        "Sales question",
+        placeholder=(
+            "Examples:\n"
+            "• What was revenue last month by region?\n"
+            "• Which sales reps are below target?\n"
+            "• Show top 10 customers by revenue.\n"
+            "• Compare this quarter with last quarter.\n"
+            "• Which products are declining?"
+        ),
+        height=120,
+        key="question_input"
+    )
 
-        # ---------------------------------------------------------------------
-        # Build business context
-        # ---------------------------------------------------------------------
+    input_col1, input_col2 = st.columns(
+        [1, 5]
+    )
 
-        business_context = build_business_context(
-            date_filter,
-            custom_start,
-            custom_end,
-            comparison,
-            region,
-            territory,
-            sales_rep,
-            product,
-            channel
+    with input_col1:
+
+        ask_button = st.button(
+            "Ask Sales AI",
+            type="primary",
+            use_container_width=True
         )
 
+    with input_col2:
 
-        analyst_question = (
-            user_question
-            + business_context
+        clear_question = st.button(
+            "Clear Question",
+            use_container_width=True
         )
 
+    if clear_question:
 
-        # ---------------------------------------------------------------------
-        # Add user message to conversation
-        # ---------------------------------------------------------------------
+        st.session_state.question_input = ""
 
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": user_question
-            }
-        )
+        st.rerun()
 
+    if ask_button:
 
-        with st.chat_message("user"):
+        if typed_question.strip():
 
-            st.markdown(
-                user_question
+            st.session_state.pending_question = (
+                typed_question.strip()
             )
 
+            st.rerun()
 
-        with st.chat_message("assistant"):
+        else:
 
-            with st.spinner(
-                "🤔 Analyzing your question..."
-            ):
+            st.warning(
+                "Please enter a sales question."
+            )
 
-                try:
+    # -------------------------------------------------------------------------
+    # Conversation History
+    # -------------------------------------------------------------------------
 
-                    # ========================================================
-                    # CALL CORTEX ANALYST
-                    # ========================================================
+    if st.session_state.chat_turns:
 
-                    api_response = ask_cortex_analyst(
-                        analyst_question,
-                        st.session_state.messages[:-1]
-                    )
+        st.markdown(
+            "---"
+        )
 
+        st.markdown(
+            "### Conversation"
+        )
 
-                    analyst_result = extract_analyst_response(
-                        api_response
-                    )
+        for turn_index, turn in enumerate(
+            st.session_state.chat_turns
+        ):
 
+            role = turn.get(
+                "role"
+            )
 
-                    response_text = analyst_result["text"]
+            if role == "user":
 
-                    generated_sql = analyst_result["sql"]
+                st.markdown(
+                    "#### You"
+                )
 
-                    suggestions = analyst_result["suggestions"]
+                st.markdown(
+                    turn.get("text", "")
+                )
 
-                    request_id = analyst_result["request_id"]
+            else:
 
+                st.markdown(
+                    "#### Sales AI"
+                )
 
-                    # ========================================================
-                    # STORE AI RESPONSE
-                    # ========================================================
+                assistant_text = turn.get(
+                    "text",
+                    ""
+                )
 
-                    if not response_text:
-
-                        response_text = (
-                            "Cortex Analyst generated an analysis "
-                            "but did not return a text explanation."
-                        )
-
-
-                    st.session_state.last_question = user_question
-
-                    st.session_state.last_response = response_text
-
-                    st.session_state.last_sql = generated_sql
-
-                    st.session_state.last_request_id = request_id
-
-                    st.session_state.suggestions = suggestions
-
-
-                    # ========================================================
-                    # DISPLAY RESPONSE
-                    # ========================================================
+                if assistant_text:
 
                     st.markdown(
-                        f"""
-                        <div class="response-box">
-                        {response_text}
-                        </div>
-                        """,
+                        '<div class="answer-box">'
+                        + assistant_text
+                        + "</div>",
                         unsafe_allow_html=True
                     )
 
-
-                    # ========================================================
-                    # EXECUTE SQL
-                    # ========================================================
-
-                    df = None
-
-                    execution_seconds = None
-
-                    sql_success = False
-
-                    sql_error_message = None
-
-
-                    if generated_sql:
-
-                        with st.spinner(
-                            "📊 Running analysis..."
-                        ):
-
-                            try:
-
-                                df, execution_seconds = (
-                                    execute_generated_sql(
-                                        generated_sql
-                                    )
-                                )
-
-                                sql_success = True
-
-                                st.session_state.last_result = df
-
-                                st.session_state.last_execution_seconds = (
-                                    execution_seconds
-                                )
-
-                                st.session_state.last_sql_success = True
-
-                                st.session_state.last_error = None
-
-
-                            except Exception as sql_error:
-
-                                sql_error_message = str(
-                                    sql_error
-                                )
-
-                                st.session_state.last_sql_success = False
-
-                                st.session_state.last_error = (
-                                    sql_error_message
-                                )
-
-
-                    # ========================================================
-                    # DISPLAY RESULTS
-                    # ========================================================
-
-                    if sql_success and df is not None:
-
-                        st.markdown(
-                            "### 📊 Query Result"
-                        )
-
-
-                        if df.empty:
-
-                            st.info(
-                                "The query executed successfully "
-                                "but returned no rows."
-                            )
-
-                        else:
-
-                            st.dataframe(
-                                df,
-                                use_container_width=True,
-                                height=400
-                            )
-
-
-                            # ------------------------------------------------
-                            # Result metadata
-                            # ------------------------------------------------
-
-                            result_col1, result_col2, result_col3 = (
-                                st.columns(3)
-                            )
-
-
-                            with result_col1:
-
-                                st.metric(
-                                    "Rows Returned",
-                                    f"{len(df):,}"
-                                )
-
-
-                            with result_col2:
-
-                                st.metric(
-                                    "Execution Time",
-                                    f"{execution_seconds:.2f}s"
-                                )
-
-
-                            with result_col3:
-
-                                if len(df) >= MAX_RESULT_ROWS:
-
-                                    st.metric(
-                                        "Result Status",
-                                        "Limited"
-                                    )
-
-                                else:
-
-                                    st.metric(
-                                        "Result Status",
-                                        "Complete"
-                                    )
-
-
-                            # ------------------------------------------------
-                            # CSV download
-                            # ------------------------------------------------
-
-                            csv_data = df.to_csv(
-                                index=False
-                            ).encode(
-                                "utf-8"
-                            )
-
-
-                            st.download_button(
-                                "⬇️ Download Results as CSV",
-                                data=csv_data,
-                                file_name=(
-                                    "sales_ai_result.csv"
-                                ),
-                                mime="text/csv"
-                            )
-
-
-                    elif generated_sql and sql_error_message:
-
-                        st.warning(
-                            "⚠️ Cortex Analyst generated SQL, "
-                            "but the SQL could not be executed."
-                        )
-
-                        st.error(
-                            sql_error_message
-                        )
-
-
-                    # ========================================================
-                    # GENERATED SQL
-                    # ========================================================
-
-                    if generated_sql:
-
-                        with st.expander(
-                            "🔍 View Generated SQL"
-                        ):
-
-                            st.code(
-                                generated_sql,
-                                language="sql"
-                            )
-
-
-                    # ========================================================
-                    # TECHNICAL DETAILS
-                    # ========================================================
-
-                    with st.expander(
-                        "🔧 Technical Details"
-                    ):
-
-                        tech_col1, tech_col2 = st.columns(2)
-
-
-                        with tech_col1:
-
-                            st.write(
-                                "**Request ID**"
-                            )
-
-                            st.code(
-                                safe_string(
-                                    request_id
-                                )
-                                if request_id
-                                else "Not returned"
-                            )
-
-
-                            st.write(
-                                "**Semantic View**"
-                            )
-
-                            st.code(
-                                SEMANTIC_VIEW
-                            )
-
-
-                        with tech_col2:
-
-                            st.write(
-                                "**Execution Status**"
-                            )
-
-                            if sql_success:
-
-                                st.success(
-                                    "SQL executed successfully"
-                                )
-
-                            elif generated_sql:
-
-                                st.error(
-                                    "SQL execution failed"
-                                )
-
-                            else:
-
-                                st.info(
-                                    "No SQL returned"
-                                )
-
-
-                            if execution_seconds is not None:
-
-                                st.write(
-                                    f"**Execution Time:** "
-                                    f"{execution_seconds:.2f} seconds"
-                                )
-
-
-                    # ========================================================
-                    # FEEDBACK
-                    # ========================================================
-
-                    st.divider()
-
-                    st.write(
-                        "Was this answer helpful?"
-                    )
-
-
-                    feedback_col1, feedback_col2, feedback_col3 = (
-                        st.columns([1, 1, 8])
-                    )
-
-
-                    with feedback_col1:
-
-                        if st.button(
-                            "👍 Yes",
-                            key=(
-                                f"feedback_yes_"
-                                f"{datetime.now().timestamp()}"
-                            )
-                        ):
-
-                            log_feedback(
-                                user_question,
-                                "POSITIVE"
-                            )
-
-                            st.success(
-                                "Thank you!"
-                            )
-
-
-                    with feedback_col2:
-
-                        if st.button(
-                            "👎 No",
-                            key=(
-                                f"feedback_no_"
-                                f"{datetime.now().timestamp()}"
-                            )
-                        ):
-
-                            log_feedback(
-                                user_question,
-                                "NEGATIVE"
-                            )
-
-                            st.info(
-                                "Feedback recorded."
-                            )
-
-
-                    # ========================================================
-                    # FOLLOW-UP SUGGESTIONS
-                    # ========================================================
-
-                    if suggestions:
-
-                        st.markdown(
-                            "### 💡 Continue Analysis"
-                        )
-
-                        suggestion_cols = st.columns(
-                            min(
-                                3,
-                                len(suggestions)
-                            )
-                        )
-
-                        for index, suggestion in enumerate(
-                            suggestions
-                        ):
-
-                            with suggestion_cols[
-                                index % len(suggestion_cols)
-                            ]:
-
-                                if st.button(
-                                    suggestion,
-                                    key=(
-                                        f"suggestion_"
-                                        f"{index}_"
-                                        f"{len(st.session_state.messages)}"
-                                    ),
-                                    use_container_width=True
-                                ):
-
-                                    st.session_state.next_question = (
-                                        suggestion
-                                    )
-
-                                    st.rerun()
-
-
-                    # ========================================================
-                    # COMMON AI ACTIONS
-                    # ========================================================
+                turn_sql = turn.get(
+                    "sql"
+                )
+
+                turn_df = turn.get(
+                    "dataframe"
+                )
+
+                turn_status = turn.get(
+                    "status"
+                )
+
+                turn_seconds = turn.get(
+                    "execution_seconds"
+                )
+
+                turn_request_id = turn.get(
+                    "request_id"
+                )
+
+                turn_query_id = turn.get(
+                    "query_id"
+                )
+
+                if (
+                    turn_df is not None
+                    and isinstance(turn_df, pd.DataFrame)
+                ):
 
                     st.markdown(
-                        "### 🔎 Investigate Further"
+                        "##### Results"
                     )
 
-
-                    action_cols = st.columns(3)
-
-
-                    with action_cols[0]:
-
-                        if st.button(
-                            "Why?",
-                            use_container_width=True
-                        ):
-
-                            st.session_state.next_question = (
-                                "Explain the main reasons behind "
-                                "the result above. Break the analysis "
-                                "down by the most important business "
-                                "dimensions."
-                            )
-
-                            st.rerun()
-
-
-                    with action_cols[1]:
-
-                        if st.button(
-                            "Compare",
-                            use_container_width=True
-                        ):
-
-                            st.session_state.next_question = (
-                                "Compare this result against the "
-                                "previous period and explain the "
-                                "largest positive and negative changes."
-                            )
-
-                            st.rerun()
-
-
-                    with action_cols[2]:
-
-                        if st.button(
-                            "Top Drivers",
-                            use_container_width=True
-                        ):
-
-                            st.session_state.next_question = (
-                                "Identify the top factors, customers, "
-                                "products, regions or sales representatives "
-                                "driving this result."
-                            )
-
-                            st.rerun()
-
-
-                    # ========================================================
-                    # ADD ASSISTANT RESPONSE TO CONVERSATION
-                    # ========================================================
-
-                    st.session_state.messages.append(
-                        {
-                            "role": "assistant",
-                            "content": response_text
-                        }
+                    st.dataframe(
+                        turn_df,
+                        use_container_width=True,
+                        height=350
                     )
 
+                    csv_data = turn_df.to_csv(
+                        index=False
+                    ).encode("utf-8")
 
-                    # ========================================================
-                    # LOG QUERY
-                    # ========================================================
-
-                    log_query(
-                        question=user_question,
-                        response=response_text,
-                        generated_sql=generated_sql,
-                        request_id=request_id,
-                        execution_seconds=execution_seconds,
-                        rows_returned=(
-                            len(df)
-                            if df is not None
-                            else 0
+                    st.download_button(
+                        label="Download CSV",
+                        data=csv_data,
+                        file_name=(
+                            "sales_ai_"
+                            + str(turn_query_id)[:8]
+                            + ".csv"
                         ),
-                        execution_status=(
-                            "SUCCESS"
-                            if sql_success
-                            else "FAILED"
-                        ),
-                        error_message=sql_error_message
+                        mime="text/csv",
+                        key=f"download_{turn_query_id}",
+                        use_container_width=False
                     )
 
+                if turn_sql:
 
-                except Exception as e:
+                    with st.expander(
+                        "Generated SQL"
+                    ):
 
-                    error_message = str(
-                        e
+                        st.code(
+                            turn_sql,
+                            language="sql"
+                        )
+
+                metadata_parts = []
+
+                if turn_status:
+                    metadata_parts.append(
+                        f"Status: {turn_status}"
                     )
 
-                    st.session_state.last_error = (
-                        error_message
+                if turn_seconds is not None:
+                    metadata_parts.append(
+                        f"SQL: {turn_seconds:.2f}s"
                     )
 
-                    st.error(
-                        "❌ Unable to process your request."
+                if turn_request_id:
+                    metadata_parts.append(
+                        f"Request ID: {turn_request_id}"
                     )
 
-                    st.error(
-                        error_message
+                if metadata_parts:
+
+                    st.caption(
+                        " | ".join(metadata_parts)
                     )
 
-                    # --------------------------------------------------------
-                    # Log failed AI request
-                    # --------------------------------------------------------
+                turn_suggestions = turn.get(
+                    "suggestions",
+                    []
+                )
 
-                    log_query(
-                        question=user_question,
-                        response="",
-                        generated_sql=None,
-                        request_id=None,
-                        execution_seconds=None,
-                        rows_returned=0,
-                        execution_status="FAILED",
-                        error_message=error_message
+                if turn_suggestions:
+
+                    st.markdown(
+                        "##### Follow-up Questions"
                     )
 
+                    for suggestion_index, suggestion in enumerate(
+                        turn_suggestions
+                    ):
 
-    # -------------------------------------------------------------------------
-    # Handle suggested next question
-    # -------------------------------------------------------------------------
+                        if st.button(
+                            suggestion,
+                            key=(
+                                f"turn_suggestion_"
+                                f"{turn_query_id}_"
+                                f"{suggestion_index}"
+                            ),
+                            use_container_width=True
+                        ):
 
-    if "next_question" in st.session_state:
+                            st.session_state.pending_question = (
+                                suggestion
+                            )
 
-        next_question = (
-            st.session_state.pop(
-                "next_question"
+                            st.rerun()
+
+            st.markdown(
+                "---"
             )
+
+    # -------------------------------------------------------------------------
+    # Pending question
+    # -------------------------------------------------------------------------
+
+    pending_question = (
+        st.session_state.get(
+            "pending_question"
         )
-
-        # Put the suggested question into the chat flow.
-        # Streamlit chat_input cannot be programmatically populated directly,
-        # so we show it as a prompt for the next interaction.
-
-        st.info(
-            f"Suggested follow-up: **{next_question}**"
-        )
-
-
-# =============================================================================
-# TAB 3 - QUERY HISTORY
-# =============================================================================
-
-with tab_history:
-
-    st.header("📈 Query History")
-
-    st.caption(
-        "Recent questions submitted through Sales AI."
     )
 
+    if pending_question:
 
-    try:
+        st.session_state.pending_question = None
 
-        history_query = f"""
-            SELECT
-                QUERY_TIMESTAMP,
-                USER_NAME,
-                USER_QUESTION,
-                RESPONSE,
-                SEMANTIC_MODEL_NAME
-            FROM ANALYST_QUERY_LOG
-            WHERE USER_QUESTION IS NOT NULL
-            ORDER BY QUERY_TIMESTAMP DESC
-            LIMIT {QUERY_HISTORY_LIMIT}
-        """
+        # Add user turn.
+        st.session_state.chat_turns.append(
+            {
+                "role": "user",
+                "text": pending_question
+            }
+        )
 
+        # Display processing area.
+        st.markdown(
+            "### Processing"
+        )
 
-        history_df = session.sql(
-            history_query
-        ).to_pandas()
+        # Call Cortex Analyst.
+        with st.spinner(
+            "Sales AI is analyzing your question..."
+        ):
 
+            query_id = str(uuid.uuid4())
 
-        if history_df.empty:
+            analyst_question = build_analyst_question(
+                pending_question
+            )
 
-            st.info(
-                "📭 No queries logged yet."
+            api_response, analyst_seconds = ask_cortex_analyst(
+                pending_question
+            )
+
+        parsed = extract_analyst_response(
+            api_response
+        )
+
+        request_id = parsed.get(
+            "request_id"
+        )
+
+        response_text = parsed.get(
+            "text",
+            ""
+        )
+
+        generated_sql = parsed.get(
+            "sql"
+        )
+
+        suggestions = parsed.get(
+            "suggestions",
+            []
+        )
+
+        execution_result = {
+            "success": False,
+            "dataframe": None,
+            "seconds": 0,
+            "rows": 0,
+            "error": None
+        }
+
+        execution_status = "ANALYST_ERROR"
+
+        if not parsed["success"]:
+
+            error_message = parsed.get(
+                "error",
+                "Cortex Analyst request failed."
+            )
+
+            st.error(
+                "Sales AI could not process the question."
+            )
+
+            with st.expander(
+                "Technical Details"
+            ):
+
+                st.code(
+                    error_message
+                )
+
+            log_query(
+                query_id=query_id,
+                user_question=pending_question,
+                analyst_question=analyst_question,
+                response_text="",
+                generated_sql=None,
+                request_id=request_id,
+                execution_status="ANALYST_ERROR",
+                analyst_seconds=analyst_seconds,
+                execution_seconds=0,
+                rows_returned=0,
+                error_message=error_message
+            )
+
+            st.session_state.chat_turns.append(
+                {
+                    "role": "assistant",
+                    "text": (
+                        "I could not process that question. "
+                        "Please try again."
+                    ),
+                    "sql": None,
+                    "dataframe": None,
+                    "status": "ANALYST_ERROR",
+                    "execution_seconds": 0,
+                    "request_id": request_id,
+                    "query_id": query_id,
+                    "suggestions": []
+                }
             )
 
         else:
 
-            # ---------------------------------------------------------------
-            # Statistics
-            # ---------------------------------------------------------------
-
-            col1, col2, col3 = st.columns(3)
-
-
-            with col1:
-
-                st.metric(
-                    "Queries",
-                    f"{len(history_df):,}"
-                )
-
-
-            with col2:
-
-                st.metric(
-                    "Unique Users",
-                    history_df[
-                        "USER_NAME"
-                    ].nunique()
-                )
-
-
-            with col3:
-
-                latest_timestamp = (
-                    str(
-                        history_df[
-                            "QUERY_TIMESTAMP"
-                        ].iloc[0]
-                    )[:19]
-                )
-
-                st.metric(
-                    "Latest Query",
-                    latest_timestamp
-                )
-
-
-            st.divider()
-
-
-            # ---------------------------------------------------------------
-            # Search history
-            # ---------------------------------------------------------------
-
-            history_search = st.text_input(
-                "🔎 Search questions",
-                placeholder=(
-                    "Search by question..."
-                )
+            # Preserve Analyst conversation.
+            assistant_message = parsed.get(
+                "assistant_message"
             )
 
+            if assistant_message:
 
-            display_df = history_df.copy()
+                st.session_state.analyst_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": analyst_question
+                            }
+                        ]
+                    }
+                )
+
+                st.session_state.analyst_messages.append(
+                    assistant_message
+                )
+
+            # Execute SQL if Analyst generated it.
+            if generated_sql:
+
+                execution_result = execute_generated_sql(
+                    generated_sql
+                )
+
+                if execution_result["success"]:
+
+                    execution_status = "SUCCESS"
+
+                else:
+
+                    execution_status = "SQL_ERROR"
+
+            else:
+
+                execution_status = "ANSWER_ONLY"
+
+            # ---------------------------------------------------------------
+            # Display current answer
+            # ---------------------------------------------------------------
+
+            st.markdown(
+                "### Sales AI Answer"
+            )
+
+            if response_text:
+
+                st.markdown(
+                    '<div class="answer-box">'
+                    + response_text
+                    + "</div>",
+                    unsafe_allow_html=True
+                )
+
+            # ---------------------------------------------------------------
+            # Display result
+            # ---------------------------------------------------------------
+
+            result_dataframe = None
+
+            if execution_result["success"]:
+
+                result_dataframe = (
+                    execution_result["dataframe"]
+                )
+
+                if result_dataframe is not None:
+
+                    st.markdown(
+                        "### Results"
+                    )
+
+                    st.dataframe(
+                        result_dataframe,
+                        use_container_width=True,
+                        height=420
+                    )
+
+                    csv_data = result_dataframe.to_csv(
+                        index=False
+                    ).encode("utf-8")
+
+                    st.download_button(
+                        label="Download Results as CSV",
+                        data=csv_data,
+                        file_name=(
+                            "sales_ai_result_"
+                            + query_id[:8]
+                            + ".csv"
+                        ),
+                        mime="text/csv",
+                        key=f"current_download_{query_id}",
+                        use_container_width=False
+                    )
+
+                    display_result_visualization(
+                        result_dataframe
+                    )
+
+            elif generated_sql:
+
+                st.error(
+                    "The generated query could not be executed "
+                    "in Snowflake."
+                )
+
+                with st.expander(
+                    "Technical Details"
+                ):
+
+                    st.code(
+                        execution_result["error"]
+                    )
+
+            # ---------------------------------------------------------------
+            # Technical details
+            # ---------------------------------------------------------------
+
+            with st.expander(
+                "Technical Details"
+            ):
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.metric(
+                        "Analyst Time",
+                        f"{analyst_seconds:.2f}s"
+                    )
+
+                with col2:
+
+                    st.metric(
+                        "SQL Time",
+                        f"{execution_result['seconds']:.2f}s"
+                    )
+
+                with col3:
+
+                    st.metric(
+                        "Rows",
+                        f"{execution_result['rows']:,}"
+                    )
+
+                with col4:
+
+                    st.metric(
+                        "Status",
+                        execution_status
+                    )
+
+                if request_id:
+
+                    st.caption(
+                        f"Request ID: {request_id}"
+                    )
+
+                if generated_sql:
+
+                    st.markdown(
+                        "#### Generated SQL"
+                    )
+
+                    st.code(
+                        generated_sql,
+                        language="sql"
+                    )
+
+            # ---------------------------------------------------------------
+            # Save conversation turn
+            # ---------------------------------------------------------------
+
+            st.session_state.chat_turns.append(
+                {
+                    "role": "assistant",
+                    "text": response_text,
+                    "sql": generated_sql,
+                    "dataframe": result_dataframe,
+                    "status": execution_status,
+                    "execution_seconds": (
+                        execution_result["seconds"]
+                    ),
+                    "request_id": request_id,
+                    "query_id": query_id,
+                    "suggestions": suggestions
+                }
+            )
+
+            # ---------------------------------------------------------------
+            # Audit log
+            # ---------------------------------------------------------------
+
+            log_query(
+                query_id=query_id,
+                user_question=pending_question,
+                analyst_question=analyst_question,
+                response_text=response_text,
+                generated_sql=generated_sql,
+                request_id=request_id,
+                execution_status=execution_status,
+                analyst_seconds=analyst_seconds,
+                execution_seconds=execution_result["seconds"],
+                rows_returned=execution_result["rows"],
+                error_message=execution_result["error"]
+            )
+
+            # ---------------------------------------------------------------
+            # Feedback
+            # ---------------------------------------------------------------
+
+            st.markdown(
+                "### Was this analysis useful?"
+            )
+
+            feedback_col1, feedback_col2 = st.columns(2)
+
+            with feedback_col1:
+
+                if st.button(
+                    "👍 Helpful",
+                    key=f"current_helpful_{query_id}",
+                    use_container_width=True
+                ):
+
+                    if log_feedback(
+                        query_id,
+                        "HELPFUL"
+                    ):
+
+                        st.success(
+                            "Thanks for your feedback."
+                        )
+
+            with feedback_col2:
+
+                if st.button(
+                    "👎 Not Helpful",
+                    key=f"current_not_helpful_{query_id}",
+                    use_container_width=True
+                ):
+
+                    if log_feedback(
+                        query_id,
+                        "NOT_HELPFUL"
+                    ):
+
+                        st.success(
+                            "Thanks for your feedback."
+                        )
+
+            # ---------------------------------------------------------------
+            # Suggestions
+            # ---------------------------------------------------------------
+
+            if suggestions:
+
+                st.markdown(
+                    "### Suggested Follow-ups"
+                )
+
+                suggestion_columns = st.columns(
+                    min(len(suggestions), 3)
+                )
+
+                for index, suggestion in enumerate(
+                    suggestions
+                ):
+
+                    with suggestion_columns[
+                        index % len(suggestion_columns)
+                    ]:
+
+                        if st.button(
+                            suggestion,
+                            key=(
+                                f"current_suggestion_"
+                                f"{query_id}_"
+                                f"{index}"
+                            ),
+                            use_container_width=True
+                        ):
+
+                            st.session_state.pending_question = (
+                                suggestion
+                            )
+
+                            st.rerun()
 
 
-            if history_search:
+# =============================================================================
+# 21. QUERY HISTORY
+# =============================================================================
 
-                mask = (
-                    display_df[
-                        "USER_QUESTION"
-                    ]
-                    .astype(str)
-                    .str.contains(
-                        history_search,
-                        case=False,
+with tab_history:
+
+    st.markdown(
+        "## Query History"
+    )
+
+    st.caption(
+        "Recent questions asked through Sales AI."
+    )
+
+    history_search = st.text_input(
+        "Search history",
+        placeholder="Search questions or users...",
+        key="history_search"
+    )
+
+    refresh_history = st.button(
+        "Refresh History"
+    )
+
+    history_df = None
+
+    try:
+
+        history_sql = f"""
+SELECT
+    QUERY_TIMESTAMP,
+    USER_NAME,
+    USER_QUESTION,
+    RESPONSE,
+    SEMANTIC_MODEL_NAME
+FROM {AUDIT_TABLE}
+ORDER BY QUERY_TIMESTAMP DESC
+LIMIT {QUERY_HISTORY_LIMIT}
+"""
+
+        history_df = session.sql(
+            history_sql
+        ).to_pandas()
+
+    except Exception:
+
+        try:
+
+            history_sql = f"""
+SELECT
+    QUERY_TIMESTAMP,
+    USER_NAME,
+    USER_QUESTION,
+    RESPONSE,
+    SEMANTIC_MODEL_NAME
+FROM {LEGACY_LOG_TABLE}
+ORDER BY QUERY_TIMESTAMP DESC
+LIMIT {QUERY_HISTORY_LIMIT}
+"""
+
+            history_df = session.sql(
+                history_sql
+            ).to_pandas()
+
+        except Exception as exc:
+
+            st.error(
+                "Unable to load query history."
+            )
+
+            with st.expander(
+                "Technical Details"
+            ):
+
+                st.code(
+                    str(exc)
+                )
+
+    if history_df is not None:
+
+        if history_search.strip():
+
+            search_value = (
+                history_search.strip().lower()
+            )
+
+            mask = (
+                history_df.astype(str)
+                .apply(
+                    lambda column: column.str.lower().str.contains(
+                        search_value,
                         na=False
                     )
                 )
+                .any(axis=1)
+            )
 
-                display_df = display_df[
-                    mask
-                ]
+            history_df = history_df[
+                mask
+            ]
 
+        if history_df.empty:
+
+            st.info(
+                "No matching query history found."
+            )
+
+        else:
 
             st.dataframe(
-                display_df[
-                    [
-                        "QUERY_TIMESTAMP",
-                        "USER_NAME",
-                        "USER_QUESTION",
-                        "RESPONSE"
-                    ]
-                ],
+                history_df,
                 use_container_width=True,
                 height=500
             )
 
+            history_csv = history_df.to_csv(
+                index=False
+            ).encode("utf-8")
 
-    except Exception as e:
-
-        st.error(
-            f"❌ Error fetching query history: {str(e)}"
-        )
+            st.download_button(
+                label="Download History CSV",
+                data=history_csv,
+                file_name="sales_ai_query_history.csv",
+                mime="text/csv"
+            )
 
 
 # =============================================================================
-# TAB 4 - SAMPLE QUESTIONS
+# 22. SAMPLE QUESTIONS
 # =============================================================================
 
 with tab_samples:
 
-    st.header("📚 Business Questions")
-
-    st.caption(
-        "Examples designed for sales executives, managers and leadership."
+    st.markdown(
+        "## Sample Business Questions"
     )
 
+    st.markdown(
+        "Use these examples as starting points."
+    )
 
-    sample_categories = {
-
-        "💰 Revenue": [
-
-            "What is total revenue this year?",
-
-            "Show revenue by month for the current year.",
-
-            "How does revenue compare with last year?",
-
-            "Which regions are driving revenue growth?",
-
-            "Why did revenue decline last month?"
-
+    sample_groups = {
+        "Revenue & Performance": [
+            "What was total revenue last month?",
+            "Show revenue by region for the last 30 days.",
+            "What is the revenue trend this quarter?",
+            "Which regions grew the most compared with the previous period?"
         ],
 
-
-        "👥 Sales Team": [
-
-            "Which sales reps are exceeding quota?",
-
-            "Which sales reps are below 80% quota attainment?",
-
-            "Rank sales reps by revenue.",
-
-            "Which reps have the highest growth?",
-
-            "Which territories are underperforming?"
-
+        "Sales Team": [
+            "Who are the top 10 sales reps by revenue?",
+            "Which sales reps are below target?",
+            "Show sales rep performance by territory.",
+            "Which territories have declining performance?"
         ],
 
-
-        "👤 Customers": [
-
-            "Show the top 10 customers by revenue.",
-
+        "Customers": [
+            "Who are our top 10 customers by revenue?",
             "Which customers have declining revenue?",
-
-            "Which customers have the highest lifetime value?",
-
-            "Which high-value customers are at risk?",
-
-            "Which customers have not purchased recently?"
-
+            "Which customers generated the most growth?",
+            "Show customer revenue by region."
         ],
 
-
-        "📦 Products": [
-
-            "Which products have the highest revenue?",
-
-            "Which products are growing fastest?",
-
-            "Which products have declining sales?",
-
+        "Products": [
+            "Which products generate the most revenue?",
+            "Which products are declining?",
             "Show revenue by product category.",
-
-            "Which products contribute most to revenue?"
-
+            "Which products are growing fastest?"
         ],
 
-
-        "🌎 Regions": [
-
-            "Show revenue by region.",
-
-            "Which region has the highest growth?",
-
-            "Which territories are underperforming?",
-
-            "Compare regional performance.",
-
-            "Which regions are below target?"
-
+        "Regional Analysis": [
+            "Compare revenue across regions.",
+            "Which region has the strongest growth?",
+            "Show territory performance by region.",
+            "Which regions need management attention?"
         ],
 
-
-        "📊 Management": [
-
-            "What are the biggest business risks?",
-
-            "What are the top revenue drivers?",
-
-            "Where are we missing quota?",
-
-            "What changed compared with last month?",
-
-            "Summarize sales performance for leadership."
-
+        "Management": [
+            "What are the biggest sales risks?",
+            "Where should the sales team focus next?",
+            "What are the top drivers of revenue growth?",
+            "Give me an executive summary of sales performance."
         ]
-
     }
 
+    for group_name, questions in sample_groups.items():
 
-    categories = list(
-        sample_categories.items()
-    )
+        st.markdown(
+            f"### {group_name}"
+        )
 
+        for question in questions:
 
-    cols = st.columns(2)
-
-
-    for index, category_data in enumerate(
-        categories
-    ):
-
-        category, questions = category_data
-
-        with cols[index % 2]:
-
-            with st.expander(
-                category,
-                expanded=False
-            ):
-
-                for question in questions:
-
-                    st.write(
-                        f"• {question}"
-                    )
+            st.markdown(
+                f"- {question}"
+            )
 
 
 # =============================================================================
-# TAB 5 - ABOUT
+# 23. ABOUT
 # =============================================================================
 
 with tab_about:
 
-    st.header("ℹ️ About Sales Intelligence")
-
+    st.markdown(
+        "## About Sales AI"
+    )
 
     st.markdown(
         """
-        ### 🤖 AI-Powered Sales Analytics
+        **Sales AI** is a Snowflake-native business analytics application
+        designed to allow sales teams to ask questions using natural language.
 
-        Sales Intelligence combines Snowflake data, a governed semantic
-        model and Cortex Analyst to allow business users to ask questions
-        about sales data using natural language.
+        The application uses:
 
-        ### Business Users
-
-        **Sales Executives**
-
-        - Revenue performance
-        - Quota attainment
-        - Customer performance
-        - Territory analysis
-
-        **Sales Managers**
-
-        - Rep performance
-        - Regional performance
-        - Customer risk
-        - Product performance
-
-        **Leadership**
-
-        - Revenue trends
-        - Growth
-        - Business risks
-        - Top revenue drivers
-
-        ### 🔐 Security
-
-        The application is designed for read-only analytics.
-
-        Generated SQL is validated before execution and destructive SQL
-        operations are blocked.
-
-        ### 🧠 AI Governance
-
-        User questions and AI responses are logged for operational monitoring,
-        troubleshooting and future AI quality improvement.
+        - Snowflake Streamlit
+        - Cortex Analyst
+        - A governed sales semantic model
+        - Snowflake SQL execution
+        - Snowflake-based audit logging
         """
     )
 
+    st.markdown(
+        "### Semantic Model"
+    )
 
-    st.divider()
+    st.code(
+        SEMANTIC_VIEW
+    )
 
+    st.markdown(
+        "### Production Controls"
+    )
 
-    col1, col2, col3, col4 = st.columns(4)
+    st.markdown(
+        """
+        **Read-only SQL**
 
+        Generated SQL is validated before execution. Only SELECT/WITH
+        statements are permitted.
 
-    with col1:
+        **Result protection**
+
+        Query results are limited to the configured maximum result size.
+
+        **Auditability**
+
+        User questions, generated SQL, execution status, timing and
+        request identifiers can be recorded.
+
+        **Conversation**
+
+        Follow-up questions use the previous Cortex Analyst conversation
+        context.
+
+        **Business filters**
+
+        Application filters are passed to Cortex Analyst as business
+        context rather than constructing physical SQL in the application.
+
+        **Technical transparency**
+
+        SQL, request IDs and execution information are available under
+        Technical Details rather than being shown by default to business
+        users.
+        """
+    )
+
+    st.markdown(
+        "### Application Information"
+    )
+
+    info_col1, info_col2, info_col3 = st.columns(3)
+
+    with info_col1:
 
         st.metric(
-            "Platform",
-            "Snowflake"
+            "Application",
+            APPLICATION_NAME
         )
 
-
-    with col2:
-
-        st.metric(
-            "AI",
-            "Cortex Analyst"
-        )
-
-
-    with col3:
+    with info_col2:
 
         st.metric(
             "Semantic Model",
-            "Sales"
+            SEMANTIC_MODEL_NAME
         )
 
-
-    with col4:
+    with info_col3:
 
         st.metric(
-            "Mode",
-            "Read Only"
+            "Max Result Rows",
+            f"{MAX_RESULT_ROWS:,}"
         )
 
 
-    st.divider()
-
-
-    st.subheader(
-        "Technical Configuration"
-    )
-
-
-    st.code(
-        f"""
-Application:
-    {APPLICATION_NAME}
-
-Semantic View:
-    {SEMANTIC_VIEW}
-
-Maximum Result Rows:
-    {MAX_RESULT_ROWS}
-
-Query History:
-    {QUERY_HISTORY_LIMIT} records
-
-Execution:
-    Snowpark
-        """,
-        language="text"
-    )
-
-
 # =============================================================================
-# FOOTER
+# 24. PROCESS A PENDING FOLLOW-UP AFTER UI RENDERING
+# =============================================================================
+#
+# This block handles questions selected from quick-question or suggestion
+# buttons. The button sets:
+#
+#     st.session_state.pending_question
+#
+# and calls st.rerun().
+#
+# The question is then processed here on the next run.
+#
 # =============================================================================
 
-st.markdown("---")
-
-st.markdown(
-    """
-    <div style="
-        text-align: center;
-        color: #777777;
-        font-size: 0.8rem;
-    ">
-        <p>
-            🔒 Sales Intelligence | Governed Snowflake Analytics
-        </p>
-
-        <p>
-            Powered by Snowflake Cortex Analyst
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+# NOTE:
+# The main Sales AI tab already processes pending questions above.
+# This section intentionally remains empty to avoid processing the same
+# question twice.
+#
+# All question processing is handled inside tab_ai.
+#
+# =============================================================================
