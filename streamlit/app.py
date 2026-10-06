@@ -725,14 +725,11 @@ def ask_cortex_analyst(question):
     try:
 
         response = (
-            _snowflake.send_snow_api_request(
-                method="POST",
-                endpoint=ANALYST_ENDPOINT,
-                headers={
-                    "Content-Type": "application/json"
-                },
-                body=request_body
-            )
+            "POST",
+            ANALYST_ENDPOINT,
+            {},
+            {},
+            request_body
         )
 
         elapsed = (
