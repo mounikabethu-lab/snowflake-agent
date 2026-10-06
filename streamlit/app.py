@@ -1,5 +1,6 @@
 """
 Cortex Analyst UI - Streamlit in Snowflake
+
 Snowflake native version (uses Snowpark, not connector)
 """
 
@@ -27,7 +28,8 @@ st.set_page_config(
 # STYLING
 # ============================================================================
 
-st.markdown("""
+st.markdown(
+    """
     <style>
     .response-box {
         background: linear-gradient(135deg, #f0f7ff 0%, #e8f4f8 100%);
@@ -39,7 +41,9 @@ st.markdown("""
         line-height: 1.6;
     }
     </style>
-""", unsafe_allow_html=True)
+    """,
+    unsafe_allow_html=True
+)
 
 
 # ============================================================================
@@ -54,7 +58,6 @@ session = get_active_session()
 # ============================================================================
 
 SEMANTIC_VIEW = "SALES_DATA.PUBLIC.SALES_SEMANTIC_MODEL"
-
 ANALYST_ENDPOINT = "/api/v2/cortex/analyst/message"
 
 
@@ -160,19 +163,24 @@ def extract_analyst_response(api_response):
 # ============================================================================
 
 st.title("📊 Sales Analytics with Cortex Analyst")
-st.markdown("Ask natural language questions about your sales data")
+
+st.markdown(
+    "Ask natural language questions about your sales data"
+)
 
 
 # ============================================================================
 # TABS
 # ============================================================================
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "💬 Ask Analyst",
-    "📈 Query History",
-    "📚 Sample Questions",
-    "ℹ️ About"
-])
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "💬 Ask Analyst",
+        "📈 Query History",
+        "📚 Sample Questions",
+        "ℹ️ About"
+    ]
+)
 
 
 # ============================================================================
@@ -198,11 +206,17 @@ with tab1:
     col1, col2 = st.columns([4, 1])
 
     with col2:
+
         ask_button = st.button(
             "🚀 Ask",
             use_container_width=True,
             type="primary"
         )
+
+
+    # ========================================================================
+    # PROCESS QUESTION
+    # ========================================================================
 
     if ask_button and user_question:
 
@@ -214,9 +228,13 @@ with tab1:
                 # CALL CORTEX ANALYST
                 # ============================================================
 
-                api_response = ask_cortex_analyst(user_question)
+                api_response = ask_cortex_analyst(
+                    user_question
+                )
 
-                analyst_result = extract_analyst_response(api_response)
+                analyst_result = extract_analyst_response(
+                    api_response
+                )
 
                 response_text = analyst_result["text"]
                 generated_sql = analyst_result["sql"]
@@ -265,23 +283,30 @@ with tab1:
                 # EXECUTE GENERATED SQL
                 # ============================================================
 
+                sql_execution_success = False
+
                 if generated_sql:
 
                     try:
 
-                        with st.spinner("📊 Running generated SQL..."):
+                        with st.spinner(
+                            "📊 Running generated SQL..."
+                        ):
 
-                            query_result = session.sql(
+                            # IMPORTANT:
+                            # Use to_pandas() directly.
+                            # Do NOT use collect() + dict(row).
+
+                            df = session.sql(
                                 generated_sql
-                            ).collect()
+                            ).to_pandas()
 
-                        if query_result:
 
-                            df = pd.DataFrame(
-                                [dict(row) for row in query_result]
-                            )
+                        sql_execution_success = True
 
-                            st.markdown("### Query Result:")
+                        st.markdown("### Query Result:")
+
+                        if not df.empty:
 
                             st.dataframe(
                                 df,
@@ -291,9 +316,10 @@ with tab1:
                         else:
 
                             st.info(
-                                "The query executed successfully but "
-                                "returned no rows."
+                                "The query executed successfully "
+                                "but returned no rows."
                             )
+
 
                     except Exception as sql_error:
 
@@ -326,24 +352,40 @@ with tab1:
                 col1, col2, col3, col4 = st.columns(4)
 
                 with col1:
-                    st.metric(
-                        "Status",
-                        "✅ Success"
-                    )
+
+                    if sql_execution_success:
+
+                        st.metric(
+                            "Status",
+                            "✅ Success"
+                        )
+
+                    else:
+
+                        st.metric(
+                            "Status",
+                            "⚠️ SQL Failed"
+                        )
+
 
                 with col2:
+
                     st.metric(
                         "Timestamp",
                         datetime.now().strftime("%H:%M:%S")
                     )
 
+
                 with col3:
+
                     st.metric(
                         "Model",
                         "CORTEX ANALYST"
                     )
 
+
                 with col4:
+
                     st.metric(
                         "Semantic View",
                         "SALES_SEMANTIC_MODEL"
@@ -370,12 +412,6 @@ with tab1:
                         "''"
                     )
 
-                    escaped_sql = (
-                        generated_sql.replace("'", "''")
-                        if generated_sql
-                        else ""
-                    )
-
                     insert_query = f"""
                         INSERT INTO ANALYST_QUERY_LOG
                         (
@@ -395,12 +431,15 @@ with tab1:
                         )
                     """
 
-                    session.sql(insert_query).collect()
+                    session.sql(
+                        insert_query
+                    ).collect()
+
 
                 except Exception as log_error:
 
                     st.warning(
-                        f"⚠️ Query answered but logging failed: "
+                        "⚠️ Query answered but logging failed: "
                         f"{str(log_error)}"
                     )
 
@@ -433,13 +472,15 @@ with tab2:
             LIMIT 20
         """
 
-        result = session.sql(query).collect()
+        # IMPORTANT:
+        # Use to_pandas() instead of collect() + dict(row)
 
-        if result:
+        df = session.sql(
+            query
+        ).to_pandas()
 
-            df = pd.DataFrame(
-                [dict(row) for row in result]
-            )
+
+        if not df.empty:
 
             # ================================================================
             # STATS
@@ -454,12 +495,14 @@ with tab2:
                     len(df)
                 )
 
+
             with col2:
 
                 st.metric(
                     "Unique Users",
                     df["USER_NAME"].nunique()
                 )
+
 
             with col3:
 
@@ -477,10 +520,12 @@ with tab2:
 
             st.divider()
 
+
             st.dataframe(
                 df,
                 use_container_width=True
             )
+
 
         else:
 
@@ -488,6 +533,7 @@ with tab2:
                 "📭 No queries logged yet. "
                 "Ask a question in the 'Ask Analyst' tab!"
             )
+
 
     except Exception as e:
 
@@ -508,53 +554,90 @@ with tab3:
         "Get inspired - see what you can ask"
     )
 
+
     samples = {
 
         "👥 Customer Analysis": [
+
             "How many customers do we have?",
+
             "Show me the top 10 customers by revenue",
+
             "Which customers have high churn risk?",
+
             "What is the average customer lifetime value?",
+
             "Show customers by industry"
+
         ],
+
 
         "📈 Sales Performance": [
+
             "Which sales reps are exceeding quota?",
+
             "Show me sales by rep for this month",
+
             "Which sales reps are underperforming?",
+
             "What is the average deal size?",
+
             "Show quota attainment by region"
+
         ],
+
 
         "📦 Product Analysis": [
+
             "Which products have the highest revenue?",
+
             "Show me products with low inventory",
+
             "What are the top-selling products?",
+
             "Show me products by category",
+
             "Which products are trending?"
+
         ],
+
 
         "💰 Business Metrics": [
+
             "What is total revenue this year?",
+
             "Show me revenue trends over time",
+
             "What is the average order value?",
+
             "How many orders do we have?",
+
             "Show me sales by channel"
+
         ],
 
+
         "⚠️ Risk & Alerts": [
+
             "Which customers have high churn risk?",
+
             "Show me inventory alerts",
+
             "List products below reorder level",
+
             "Which reps are at risk of missing quota?",
+
             "Show me high-risk forecasts"
+
         ]
+
     }
 
 
     col1, col2 = st.columns(2)
 
     col_idx = 0
+
 
     for category, questions in samples.items():
 
@@ -564,10 +647,11 @@ with tab3:
             else col2
         )
 
+
         with col:
 
             with st.expander(
-                f"{category}",
+                category,
                 expanded=False
             ):
 
@@ -580,10 +664,12 @@ with tab3:
                         f"{i}. {question}"
                     )
 
+
         col_idx += 1
 
 
     st.divider()
+
 
     st.markdown(
         """
@@ -591,12 +677,16 @@ with tab3:
 
         - **Be specific**: Instead of "Show customers",
           try "Show top 10 customers by revenue"
+
         - **Use timeframes**: Ask about "this month",
           "last quarter", "2024"
+
         - **Request rankings**: Use "top 5", "bottom 10",
           "highest", "lowest"
+
         - **Add filters**: Try "by region", "by industry",
           "by status"
+
         - **Ask for aggregations**: "total", "average",
           "count", "sum"
         """
@@ -613,6 +703,7 @@ with tab4:
 
     col1, col2 = st.columns(2)
 
+
     with col1:
 
         st.subheader("🚀 Features")
@@ -621,16 +712,21 @@ with tab4:
             """
             - **Natural Language Queries**:
               Ask questions in plain English
+
             - **Instant Responses**:
               Get answers within seconds
+
             - **Automatic Logging**:
               All queries logged for audit
+
             - **Query History**:
               Access past questions and responses
+
             - **Sample Questions**:
               Pre-built examples for guidance
             """
         )
+
 
     with col2:
 
@@ -639,10 +735,15 @@ with tab4:
         st.markdown(
             """
             - **Database**: SALES_DATA
+
             - **Schema**: PUBLIC
+
             - **Semantic View**: SALES_SEMANTIC_MODEL
+
             - **Tables**: 13+ business tables
+
             - **Metrics**: 50+ pre-built metrics
+
             - **Dimensions**: 54+ attributes
             """
         )
@@ -652,7 +753,9 @@ with tab4:
 
     st.subheader("🔧 Technical Details")
 
+
     col1, col2, col3 = st.columns(3)
+
 
     with col1:
 
@@ -661,12 +764,14 @@ with tab4:
             "✅ Online"
         )
 
+
     with col2:
 
         st.metric(
             "Analyst",
             "Cortex"
         )
+
 
     with col3:
 
@@ -678,11 +783,13 @@ with tab4:
 
     st.divider()
 
+
     st.markdown(
         """
         **Built with Streamlit + Snowflake Cortex Analyst**
 
         All interactions are logged and secured.
+
         For support, contact your data team.
         """
     )
